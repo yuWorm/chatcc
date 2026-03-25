@@ -20,7 +20,12 @@ def run(config_path: str | None, debug: bool):
         level=logging.DEBUG if debug else logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    click.echo("ChatCC starting... (app not yet wired)")
+
+    from chatcc.config import load_config
+    from chatcc.app import Application
+
+    config = load_config(Path(config_path) if config_path else None)
+    asyncio.run(Application(config).start())
 
 
 @cli.command()
