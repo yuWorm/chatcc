@@ -33,9 +33,14 @@ class MessageChannel(ABC):
         """注册消息回调"""
 
     @staticmethod
-    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+    def interactive_setup(
+        ui: SetupUI,
+        *,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """交互式凭证收集。返回写入 config.yaml 的渠道配置字典。
 
+        existing 为当前已有配置，用于增量修改时填充默认值。
         子类应覆写此方法。未覆写的渠道 (如 CLI) 无需配置。
         """
         return {}

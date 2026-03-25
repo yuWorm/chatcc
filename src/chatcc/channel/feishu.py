@@ -32,17 +32,27 @@ from loguru import logger
 class FeishuChannel(MessageChannel):
 
     @staticmethod
-    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+    def interactive_setup(
+        ui: SetupUI,
+        *,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         import questionary as q
 
+        ex = existing or {}
+        has_existing = existing is not None
+
         q.print("=== 飞书应用认证 ===", style="bold fg:cyan")
-        app_id = ui.prompt("请输入 App ID")
-        app_secret = ui.prompt("请输入 App Secret", hide=True)
+        app_id = ui.prompt("请输入 App ID", default=ex.get("app_id", ""))
+
+        new_secret = ui.prompt_secret("请输入 App Secret", has_existing=has_existing)
+        app_secret = new_secret if new_secret is not None else ex.get("app_secret", "")
 
         if not app_id or not app_secret:
             raise ValueError("App ID 和 App Secret 不能为空")
 
-        allowed = ui.prompt("允许的用户 Open ID (逗号分隔, 留空允许所有)", default="")
+        default_allowed = ",".join(str(u) for u in ex.get("allowed_users", []))
+        allowed = ui.prompt("允许的用户 Open ID (逗号分隔, 留空允许所有)", default=default_allowed)
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
 
         return {

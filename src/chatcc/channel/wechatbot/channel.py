@@ -67,16 +67,23 @@ MAX_TEXT_CHUNK = 2000
 class WeChatChannel(MessageChannel):
 
     @staticmethod
-    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+    def interactive_setup(
+        ui: SetupUI,
+        *,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         import questionary as q
+
+        ex = existing or {}
 
         q.print("=== 微信 iLink Bot 认证 ===", style="bold fg:cyan")
         q.print("首次使用需要扫码登录，凭证会保存到 ~/.wechatbot/credentials.json", style="fg:yellow")
         cred_path = ui.prompt(
             "凭证文件路径 (留空使用默认 ~/.wechatbot/credentials.json)",
-            default="",
+            default=ex.get("cred_path", ""),
         )
-        allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default="")
+        default_allowed = ",".join(str(u) for u in ex.get("allowed_users", []))
+        allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default=default_allowed)
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
         return {
             "cred_path": cred_path or "",

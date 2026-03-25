@@ -40,18 +40,28 @@ class TelegramChannel(MessageChannel):
     MAX_MESSAGE_LENGTH = 4096
 
     @staticmethod
-    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+    def interactive_setup(
+        ui: SetupUI,
+        *,
+        existing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         import questionary as q
 
+        ex = existing or {}
+        has_existing = existing is not None
+
         q.print("=== Telegram Bot 认证 ===", style="bold fg:cyan")
-        token = ui.prompt("请输入 Bot Token (从 @BotFather 获取)")
+
+        new_token = ui.prompt_secret("Bot Token (从 @BotFather 获取)", has_existing=has_existing)
+        token = new_token if new_token is not None else ex.get("token", "")
 
         if not token or ":" not in token:
             raise ValueError("Token 格式无效 (应为 数字:字母串)")
 
+        default_allowed = ",".join(str(u) for u in ex.get("allowed_users", []))
         allowed = ui.prompt(
             "允许的用户 ID 或用户名 (逗号分隔, 用户名不加@, 留空允许所有)",
-            default="",
+            default=default_allowed,
         )
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
 

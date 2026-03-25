@@ -7,7 +7,7 @@ import click
 import questionary
 import yaml
 
-from chatcc.config import CHATCC_HOME
+from chatcc.config import CHATCC_HOME, AppConfig
 
 
 @click.group()
@@ -19,6 +19,30 @@ def cli():
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
+
+def _mask_key(key: str) -> str:
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}...{key[-4:]}"
+
+
+def _show_config_summary(config: AppConfig) -> None:
+    questionary.print("  当前配置:", style="bold")
+    ap = config.agent.active_provider
+    provider = config.agent.providers.get(ap)
+    if provider:
+        masked = _mask_key(provider.api_key) if provider.api_key else "(未设置)"
+        questionary.print(f"    AI Provider: {ap} / {provider.model}", style="fg:green")
+        questionary.print(f"    API Key: {masked}", style="fg:green")
+    else:
+        questionary.print("    AI Provider: (未配置)", style="fg:yellow")
+
+    ch = config.channel.type
+    if ch != "cli":
+        questionary.print(f"    IM 渠道: {ch}", style="fg:green")
+    else:
+        questionary.print("    IM 渠道: (未配置)", style="fg:yellow")
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     for key, value in override.items():
@@ -52,6 +76,7 @@ def _update_config(updates: dict[str, Any], *, config_dir: Path | None = None) -
 def _run_channel_setup(
     channel_type: str,
     *,
+    existing: dict[str, Any] | None = None,
     config_dir: Path | None = None,
 ) -> None:
     from chatcc.channel.factory import get_channel_class
@@ -65,7 +90,7 @@ def _run_channel_setup(
     ui = CliSetupUI()
 
     try:
-        channel_config = cls.interactive_setup(ui)
+        channel_config = cls.interactive_setup(ui, existing=existing)
     except ValueError as e:
         questionary.print(f"错误: {e}", style="bold fg:red")
         return
@@ -101,31 +126,43 @@ DEFAULT_MODELS: dict[str, str] = {
 
 def _run_provider_setup(
     *,
+    existing: dict[str, Any] | None = None,
     config_dir: Path | None = None,
 ) -> None:
+    from chatcc.config import ProviderConfig
     from chatcc.setup.ui import CliSetupUI
 
     ui = CliSetupUI()
     questionary.print("=== AI Provider 配置 ===", style="bold fg:cyan")
 
+    ex = ProviderConfig(**(existing or {}))
+    has_existing = existing is not None
+
     provider_name = ui.choose("选择 AI 供应商:", PROVIDER_OPTIONS)
-    default_model = DEFAULT_MODELS.get(provider_name, "")
 
     if provider_name == "custom":
-        provider_name = ui.prompt("供应商名称 (用于配置标识)", default="custom-llm")
-        base_url = ui.prompt("API Base URL (例: https://api.example.com/v1)")
-        model = ui.prompt("模型名称")
-        api_key = ui.prompt("API Key", hide=True)
+        default_name = ex.name if has_existing and ex.name not in dict(PROVIDER_OPTIONS) else "custom-llm"
+        provider_name = ui.prompt("供应商名称 (用于配置标识)", default=default_name)
+        base_url = ui.prompt(
+            "API Base URL (例: https://api.example.com/v1)",
+            default=ex.base_url or "",
+        )
+        model = ui.prompt("模型名称", default=ex.model if has_existing else "")
+        new_key = ui.prompt_secret("API Key", has_existing=has_existing)
+        api_key = new_key if new_key is not None else ex.api_key
 
-        provider_config = {
+        provider_config: dict[str, Any] = {
             "name": provider_name,
             "model": model,
             "api_key": api_key,
             "base_url": base_url,
         }
     else:
+        default_model = ex.model if has_existing and ex.name == provider_name else DEFAULT_MODELS.get(provider_name, "")
         model = ui.prompt("模型名称", default=default_model)
-        api_key = ui.prompt("API Key", hide=True)
+        keep_key = has_existing and ex.name == provider_name
+        new_key = ui.prompt_secret("API Key", has_existing=keep_key)
+        api_key = new_key if new_key is not None else ex.api_key
 
         provider_config = {
             "name": provider_name,
@@ -188,9 +225,8 @@ def auth(channel: str | None) -> None:
     _run_channel_setup(ch_type)
 
 
-@cli.command(name="init")
-def init_cmd() -> None:
-    """初始化向导 — 一站式配置 AI Provider 和 IM 渠道"""
+def _run_full_wizard() -> None:
+    """完整初始化向导 (首次或 --reset)。"""
     from chatcc.channel.factory import CHANNEL_LABELS
     from chatcc.setup.ui import CliSetupUI
 
@@ -201,14 +237,12 @@ def init_cmd() -> None:
     questionary.print("╚════════════════════════════════════╝", style="bold fg:cyan")
     questionary.print("")
 
-    # Step 1: AI Provider
     questionary.print("── Step 1/2: AI Provider ──", style="bold fg:yellow")
     questionary.print("")
     _run_provider_setup()
 
     questionary.print("")
 
-    # Step 2: IM Channel
     questionary.print("── Step 2/2: IM 渠道 ──", style="bold fg:yellow")
     questionary.print("")
     ch_type = ui.choose("选择 IM 渠道:", CHANNEL_LABELS)
@@ -220,6 +254,90 @@ def init_cmd() -> None:
     questionary.print(f"   配置文件: {CHATCC_HOME / 'config.yaml'}", style="fg:green")
     questionary.print("   运行 `chatcc run` 启动", style="fg:green")
     questionary.print("═" * 38, style="bold fg:green")
+
+
+INIT_MENU_OPTIONS: list[tuple[str, str]] = [
+    ("provider", "修改 AI Provider"),
+    ("channel", "修改 IM 渠道"),
+    ("reinit", "重新初始化 (全部重新配置)"),
+    ("exit", "完成退出"),
+]
+
+
+def _run_config_menu() -> None:
+    """已有配置时的增量修改菜单。"""
+    from chatcc.channel.factory import CHANNEL_LABELS
+    from chatcc.config import load_config
+    from chatcc.setup.ui import CliSetupUI
+
+    ui = CliSetupUI()
+    questionary.print("")
+    questionary.print("╔════════════════════════════════════╗", style="bold fg:cyan")
+    questionary.print("║     ChatCC 配置管理                 ║", style="bold fg:cyan")
+    questionary.print("╚════════════════════════════════════╝", style="bold fg:cyan")
+
+    while True:
+        config = load_config()
+        questionary.print("")
+        _show_config_summary(config)
+        questionary.print("")
+
+        action = ui.choose("请选择操作:", INIT_MENU_OPTIONS)
+
+        if action == "provider":
+            questionary.print("")
+            ap = config.agent.active_provider
+            provider = config.agent.providers.get(ap)
+            ex = None
+            if provider:
+                ex = {"name": provider.name, "model": provider.model, "api_key": provider.api_key}
+                if provider.base_url:
+                    ex["base_url"] = provider.base_url
+            _run_provider_setup(existing=ex)
+
+        elif action == "channel":
+            questionary.print("")
+            ch_type = config.channel.type
+            existing_ch_config = getattr(config.channel, ch_type, {}) if ch_type != "cli" else {}
+
+            if ch_type != "cli":
+                sub = ui.choose("渠道操作:", [
+                    ("reconfig", f"重新配置当前渠道 ({ch_type})"),
+                    ("switch", "切换到其他渠道"),
+                ])
+                if sub == "reconfig":
+                    _run_channel_setup(ch_type, existing=existing_ch_config)
+                else:
+                    new_type = ui.choose("选择 IM 渠道:", CHANNEL_LABELS)
+                    _run_channel_setup(new_type)
+            else:
+                new_type = ui.choose("选择 IM 渠道:", CHANNEL_LABELS)
+                _run_channel_setup(new_type)
+
+        elif action == "reinit":
+            questionary.print("")
+            _run_full_wizard()
+            break
+
+        elif action == "exit":
+            questionary.print("")
+            questionary.print("✅ 配置已保存", style="bold fg:green")
+            questionary.print(f"   配置文件: {CHATCC_HOME / 'config.yaml'}", style="fg:green")
+            questionary.print("   运行 `chatcc run` 启动", style="fg:green")
+            break
+
+
+@cli.command(name="init")
+@click.option("--reset", is_flag=True, default=False, help="忽略现有配置，完全重新初始化")
+def init_cmd(reset: bool) -> None:
+    """初始化向导 — 一站式配置 AI Provider 和 IM 渠道"""
+    config_path = CHATCC_HOME / "config.yaml"
+    has_config = config_path.exists() and config_path.stat().st_size > 0
+
+    if reset or not has_config:
+        _run_full_wizard()
+    else:
+        _run_config_menu()
 
 
 if __name__ == "__main__":
