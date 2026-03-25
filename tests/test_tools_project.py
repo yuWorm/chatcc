@@ -30,6 +30,10 @@ def test_project_tools_registered(dispatcher: Dispatcher) -> None:
         "execute_command",
         "get_project_info",
         "list_projects",
+        "service_logs",
+        "service_status",
+        "start_service",
+        "stop_service",
         "switch_project",
     }
 
