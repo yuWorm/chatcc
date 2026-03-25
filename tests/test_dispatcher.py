@@ -27,6 +27,7 @@ def test_dispatcher_agent_configured():
     assert tool_names == {
         "create_project",
         "delete_project",
+        "execute_command",
         "get_project_info",
         "list_projects",
         "switch_project",

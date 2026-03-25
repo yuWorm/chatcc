@@ -27,6 +27,7 @@ def test_project_tools_registered(dispatcher: Dispatcher) -> None:
     assert names == {
         "create_project",
         "delete_project",
+        "execute_command",
         "get_project_info",
         "list_projects",
         "switch_project",
