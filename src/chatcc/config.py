@@ -17,6 +17,7 @@ class ProviderConfig:
     model: str = ""
     api_key: str = ""
     base_url: str | None = None
+    type: str = "chat"  # "chat" or "responses" (OpenAI protocol only)
 
 
 @dataclass
