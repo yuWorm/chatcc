@@ -45,3 +45,11 @@ async def test_cli_on_message_callback():
 
     channel.on_message(handler)
     assert channel._callback is not None
+
+
+@pytest.mark.asyncio
+async def test_cli_send_typing(capsys):
+    channel = CliChannel()
+    await channel.send_typing("cli")
+    captured = capsys.readouterr()
+    assert "思考中" in captured.out

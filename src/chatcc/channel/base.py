@@ -43,3 +43,6 @@ class MessageChannel(ABC):
     @abstractmethod
     def is_authenticated(self) -> bool:
         """检查渠道是否已完成认证"""
+
+    async def send_typing(self, chat_id: str) -> None:
+        """发送"正在输入"状态提示。不支持的渠道默认忽略。"""

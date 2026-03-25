@@ -236,6 +236,7 @@ class Application:
             return
 
         self._last_chat_id = message.chat_id
+        await self.channel.send_typing(message.chat_id)
 
         self.history.add_message("user", message.content)
 

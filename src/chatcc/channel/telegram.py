@@ -9,6 +9,7 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -158,6 +159,10 @@ class TelegramChannel(MessageChannel):
 
     def is_authenticated(self) -> bool:
         return bool(self._token)
+
+    async def send_typing(self, chat_id: str) -> None:
+        if self._bot:
+            await self._bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     def _is_user_allowed(self, user_id: str, username: str | None = None) -> bool:
         if not self._allowed_users:

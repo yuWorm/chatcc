@@ -19,3 +19,17 @@ def test_concrete_implementation():
 
     channel = DummyChannel()
     assert channel.is_authenticated()
+
+
+@pytest.mark.asyncio
+async def test_send_typing_default_noop():
+    class DummyChannel(MessageChannel):
+        async def start(self) -> None: pass
+        async def stop(self) -> None: pass
+        async def send(self, message: OutboundMessage) -> None: pass
+        def render(self, message: RichMessage): return str(message)
+        def on_message(self, callback) -> None: pass
+        def is_authenticated(self) -> bool: return True
+
+    channel = DummyChannel()
+    await channel.send_typing("chat_123")

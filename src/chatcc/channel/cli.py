@@ -69,6 +69,9 @@ class CliChannel(MessageChannel):
     def is_authenticated(self) -> bool:
         return True
 
+    async def send_typing(self, chat_id: str) -> None:
+        print("思考中...", flush=True)
+
     async def _read_loop(self) -> None:
         loop = asyncio.get_running_loop()
         while self._running:

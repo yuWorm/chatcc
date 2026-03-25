@@ -104,3 +104,19 @@ def test_is_user_allowed(channel):
 def test_empty_allowed_users_allows_all():
     ch = TelegramChannel({"token": "test", "allowed_users": []})
     assert ch._is_user_allowed("anyone") is True
+
+
+@pytest.mark.asyncio
+async def test_send_typing_calls_chat_action(channel):
+    from unittest.mock import AsyncMock
+    channel._bot = AsyncMock()
+    await channel.send_typing("12345")
+    channel._bot.send_chat_action.assert_called_once()
+    call_kwargs = channel._bot.send_chat_action.call_args
+    assert call_kwargs.kwargs["chat_id"] == "12345"
+
+
+@pytest.mark.asyncio
+async def test_send_typing_noop_without_bot(channel):
+    channel._bot = None
+    await channel.send_typing("12345")
