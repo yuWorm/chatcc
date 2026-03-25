@@ -38,6 +38,7 @@ class TaskManager:
             project=project,
             on_notification=self._on_notify,
             on_permission=self._build_permission_handler(),
+            approval_table=self._approval_table,
         )
         self._sessions[project_name] = session
         return session
@@ -108,5 +109,9 @@ class TaskManager:
         self._running_tasks.clear()
 
     def _build_permission_handler(self):
-        """Build a permission handler callback (placeholder for Task 10)"""
-        return None  # Will be implemented in Task 10
+        """Optional callback for dangerous tools when ApprovalTable is not used.
+
+        Risk assessment and ApprovalTable are wired on ProjectSession directly;
+        this remains for custom on_permission overrides if added later.
+        """
+        return None

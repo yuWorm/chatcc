@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Awaitable
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 
 from chatcc.project.models import Project
+
+if TYPE_CHECKING:
+    from chatcc.approval.table import ApprovalTable
 
 
 class TaskState(Enum):
@@ -19,12 +22,23 @@ class TaskState(Enum):
     FAILED = "failed"
 
 
+def _summarize_tool_input(tool_name: str, input_data: dict[str, Any]) -> str:
+    """Create a short summary of the tool input for approval messages."""
+    if tool_name == "Bash":
+        return input_data.get("command", str(input_data))[:200]
+    if tool_name == "Write":
+        path = input_data.get("path", "unknown")
+        return f"写入文件: {path}"
+    return f"{tool_name}({str(input_data)[:150]})"
+
+
 class ProjectSession:
     def __init__(
         self,
         project: Project,
         on_notification: Callable[[str, str], Awaitable[None]] | None = None,
         on_permission: Callable[[str, dict], Awaitable[bool]] | None = None,
+        approval_table: ApprovalTable | None = None,
     ):
         self.project = project
         self.client: ClaudeSDKClient | None = None
@@ -32,17 +46,19 @@ class ProjectSession:
         self.task_state: TaskState = TaskState.IDLE
         self._on_notification = on_notification
         self._on_permission = on_permission
+        self._approval_table = approval_table
 
     def _build_options(self) -> ClaudeAgentOptions:
         hooks = {}
         if self._on_notification:
             hooks["Notification"] = [HookMatcher(hooks=[self._notification_hook])]
 
+        has_permission_handling = self._approval_table or self._on_permission
         return ClaudeAgentOptions(
             cwd=self.project.path,
             permission_mode=self.project.config.permission_mode,
             setting_sources=self.project.config.setting_sources,
-            can_use_tool=self._permission_handler if self._on_permission else None,
+            can_use_tool=self._permission_handler if has_permission_handling else None,
             hooks=hooks if hooks else None,
             resume=self.active_session_id,
             model=self.project.config.model,
@@ -133,9 +149,37 @@ class ProjectSession:
     ):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
+        from chatcc.approval.risk import assess_risk
+
+        risk = assess_risk(
+            tool_name, input_data, workspace=self.project.path
+        )
+
+        if risk == "safe":
+            return PermissionResultAllow(updated_input=input_data)
+
+        if risk == "forbidden":
+            return PermissionResultDeny(reason="操作超出项目目录边界")
+
+        # risk == "dangerous"
+        if self._approval_table and self._on_notification:
+            summary = _summarize_tool_input(tool_name, input_data)
+            future = self._approval_table.request_approval(
+                self.project.name, tool_name, summary
+            )
+            await self._on_notification(
+                self.project.name,
+                f"⚠️ 危险操作待确认:\n{tool_name}: {summary}\n回复 /y 确认 或 /n 拒绝",
+            )
+            allowed = await future
+            if allowed:
+                return PermissionResultAllow(updated_input=input_data)
+            return PermissionResultDeny(reason="用户拒绝")
+
         if self._on_permission:
             allowed = await self._on_permission(tool_name, input_data)
             if allowed:
                 return PermissionResultAllow(updated_input=input_data)
             return PermissionResultDeny(reason="User denied")
-        return PermissionResultAllow(updated_input=input_data)
+
+        return PermissionResultDeny(reason="无审批机制，拒绝危险操作")
