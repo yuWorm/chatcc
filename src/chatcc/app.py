@@ -14,6 +14,7 @@ from chatcc.config import CHATCC_HOME, AppConfig, load_config
 from chatcc.cost.tracker import CostTracker
 from chatcc.memory.history import ConversationHistory
 from chatcc.memory.longterm import LongTermMemory
+from chatcc.memory.summary import SummaryManager
 from chatcc.project.manager import ProjectManager
 from chatcc.router.router import MessageRouter
 from chatcc.service.manager import ServiceManager
@@ -31,6 +32,11 @@ class Application:
         self.cost_tracker = CostTracker(budget_limit=self.config.budget.daily_limit)
         self.history = ConversationHistory(storage_dir=CHATCC_HOME / "history")
         self.longterm_memory = LongTermMemory(memory_dir=CHATCC_HOME / "memory")
+        self.summary_manager = SummaryManager(
+            history=self.history,
+            longterm_memory=self.longterm_memory,
+            config=self.config.agent.memory,
+        )
         self.service_manager = ServiceManager(services_dir=CHATCC_HOME / "services")
         self.task_manager = TaskManager(
             project_manager=self.project_manager,
@@ -206,6 +212,15 @@ class Application:
             OutboundMessage(chat_id=message.chat_id, content=response)
         )
 
+    async def _compress_history(self) -> None:
+        """Background task to compress conversation history"""
+        try:
+            summary = await self.summary_manager.compress()
+            if summary:
+                logger.info("History compressed: %s", summary[:100])
+        except Exception:
+            logger.exception("Failed to compress history")
+
     async def _send_to_channel(self, message: OutboundMessage) -> None:
         """Helper for tools to send messages back to IM"""
         if self.channel:
@@ -242,6 +257,9 @@ class Application:
             response_text = result.output
 
             self.history.add_message("assistant", response_text)
+
+            if self.summary_manager.should_compress():
+                asyncio.create_task(self._compress_history())
 
             await self.channel.send(
                 OutboundMessage(chat_id=message.chat_id, content=response_text)
