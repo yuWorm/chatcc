@@ -116,11 +116,7 @@ class Application:
             )
             return
 
-        deps = AgentDeps(
-            default_project=None,
-            active_projects=0,
-            pending_approvals=0,
-        )
+        deps = AgentDeps(chat_id=message.chat_id)
 
         try:
             result = await self.dispatcher.agent.run(message.content, deps=deps)
