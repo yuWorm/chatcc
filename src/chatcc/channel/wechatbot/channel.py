@@ -68,8 +68,10 @@ class WeChatChannel(MessageChannel):
 
     @staticmethod
     def interactive_setup(ui: SetupUI) -> dict[str, Any]:
-        ui.echo("=== 微信 iLink Bot 认证 ===")
-        ui.echo("首次使用需要扫码登录，凭证会保存到 ~/.wechatbot/credentials.json")
+        import questionary as q
+
+        q.print("=== 微信 iLink Bot 认证 ===", style="bold fg:cyan")
+        q.print("首次使用需要扫码登录，凭证会保存到 ~/.wechatbot/credentials.json", style="fg:yellow")
         cred_path = ui.prompt(
             "凭证文件路径 (留空使用默认 ~/.wechatbot/credentials.json)",
             default="",

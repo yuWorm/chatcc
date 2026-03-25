@@ -41,7 +41,9 @@ class TelegramChannel(MessageChannel):
 
     @staticmethod
     def interactive_setup(ui: SetupUI) -> dict[str, Any]:
-        ui.echo("=== Telegram Bot 认证 ===")
+        import questionary as q
+
+        q.print("=== Telegram Bot 认证 ===", style="bold fg:cyan")
         token = ui.prompt("请输入 Bot Token (从 @BotFather 获取)")
 
         if not token or ":" not in token:

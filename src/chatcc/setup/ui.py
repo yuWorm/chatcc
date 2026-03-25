@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-import click
+import questionary
+from questionary import Style
+
+_STYLE = Style([
+    ("qmark", "fg:cyan bold"),
+    ("question", "bold"),
+    ("answer", "fg:green bold"),
+    ("pointer", "fg:cyan bold"),
+    ("highlighted", "fg:cyan bold"),
+    ("selected", "fg:green"),
+])
 
 
 @runtime_checkable
@@ -33,26 +43,29 @@ class SetupUI(Protocol):
 
 
 class CliSetupUI:
-    """基于 click 的 CLI 实现"""
+    """基于 questionary 的 CLI 实现"""
 
     def prompt(self, message: str, *, default: str = "", hide: bool = False) -> str:
-        if default != "":
-            return click.prompt(message, default=default, hide_input=hide)
-        return click.prompt(message, default="", hide_input=hide, show_default=False)
+        if hide:
+            result = questionary.password(message, style=_STYLE).ask()
+        else:
+            result = questionary.text(message, default=default, style=_STYLE).ask()
+        if result is None:
+            raise KeyboardInterrupt
+        return result
 
     def echo(self, message: str) -> None:
-        click.echo(message)
+        questionary.print(message, style="bold")
 
     def choose(self, message: str, options: list[tuple[str, str]]) -> str:
-        self.echo(message)
-        for i, (value, label) in enumerate(options, 1):
-            self.echo(f"  [{i}] {label}")
-
-        while True:
-            raw = click.prompt("请选择", type=int)
-            if 1 <= raw <= len(options):
-                return options[raw - 1][0]
-            self.echo(f"  无效选择，请输入 1-{len(options)}")
+        choices = [questionary.Choice(title=label, value=value) for value, label in options]
+        result = questionary.select(message, choices=choices, style=_STYLE).ask()
+        if result is None:
+            raise KeyboardInterrupt
+        return result
 
     def confirm(self, message: str, *, default: bool = False) -> bool:
-        return click.confirm(message, default=default)
+        result = questionary.confirm(message, default=default, style=_STYLE).ask()
+        if result is None:
+            raise KeyboardInterrupt
+        return result

@@ -33,7 +33,9 @@ class FeishuChannel(MessageChannel):
 
     @staticmethod
     def interactive_setup(ui: SetupUI) -> dict[str, Any]:
-        ui.echo("=== 飞书应用认证 ===")
+        import questionary as q
+
+        q.print("=== 飞书应用认证 ===", style="bold fg:cyan")
         app_id = ui.prompt("请输入 App ID")
         app_secret = ui.prompt("请输入 App Secret", hide=True)
 

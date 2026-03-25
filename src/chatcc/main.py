@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import questionary
 import yaml
 
 from chatcc.config import CHATCC_HOME
@@ -57,7 +58,7 @@ def _run_channel_setup(
     from chatcc.setup.ui import CliSetupUI
 
     if channel_type == "cli":
-        click.echo("CLI 渠道无需认证")
+        questionary.print("CLI 渠道无需认证", style="fg:yellow")
         return
 
     cls = get_channel_class(channel_type)
@@ -66,7 +67,7 @@ def _run_channel_setup(
     try:
         channel_config = cls.interactive_setup(ui)
     except ValueError as e:
-        click.echo(f"错误: {e}")
+        questionary.print(f"错误: {e}", style="bold fg:red")
         return
 
     _update_config(
@@ -105,7 +106,7 @@ def _run_provider_setup(
     from chatcc.setup.ui import CliSetupUI
 
     ui = CliSetupUI()
-    ui.echo("=== AI Provider 配置 ===")
+    questionary.print("=== AI Provider 配置 ===", style="bold fg:cyan")
 
     provider_name = ui.choose("选择 AI 供应商:", PROVIDER_OPTIONS)
     default_model = DEFAULT_MODELS.get(provider_name, "")
@@ -142,7 +143,7 @@ def _run_provider_setup(
         config_dir=config_dir,
     )
 
-    ui.echo(f"✅ Provider 配置完成: {provider_name} / {model}")
+    questionary.print(f"✅ Provider 配置完成: {provider_name} / {model}", style="bold fg:green")
 
 
 # ---------------------------------------------------------------------------
@@ -194,31 +195,31 @@ def init_cmd() -> None:
     from chatcc.setup.ui import CliSetupUI
 
     ui = CliSetupUI()
-    ui.echo("")
-    ui.echo("╔════════════════════════════════════╗")
-    ui.echo("║     ChatCC 初始化向导               ║")
-    ui.echo("╚════════════════════════════════════╝")
-    ui.echo("")
+    questionary.print("")
+    questionary.print("╔════════════════════════════════════╗", style="bold fg:cyan")
+    questionary.print("║     ChatCC 初始化向导               ║", style="bold fg:cyan")
+    questionary.print("╚════════════════════════════════════╝", style="bold fg:cyan")
+    questionary.print("")
 
     # Step 1: AI Provider
-    ui.echo("── Step 1/2: AI Provider ──")
-    ui.echo("")
+    questionary.print("── Step 1/2: AI Provider ──", style="bold fg:yellow")
+    questionary.print("")
     _run_provider_setup()
 
-    ui.echo("")
+    questionary.print("")
 
     # Step 2: IM Channel
-    ui.echo("── Step 2/2: IM 渠道 ──")
-    ui.echo("")
+    questionary.print("── Step 2/2: IM 渠道 ──", style="bold fg:yellow")
+    questionary.print("")
     ch_type = ui.choose("选择 IM 渠道:", CHANNEL_LABELS)
     _run_channel_setup(ch_type)
 
-    ui.echo("")
-    ui.echo("═" * 38)
-    ui.echo("✅ ChatCC 初始化完成!")
-    ui.echo(f"   配置文件: {CHATCC_HOME / 'config.yaml'}")
-    ui.echo("   运行 `chatcc run` 启动")
-    ui.echo("═" * 38)
+    questionary.print("")
+    questionary.print("═" * 38, style="bold fg:green")
+    questionary.print("✅ ChatCC 初始化完成!", style="bold fg:green")
+    questionary.print(f"   配置文件: {CHATCC_HOME / 'config.yaml'}", style="fg:green")
+    questionary.print("   运行 `chatcc run` 启动", style="fg:green")
+    questionary.print("═" * 38, style="bold fg:green")
 
 
 if __name__ == "__main__":
