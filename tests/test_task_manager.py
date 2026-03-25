@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from chatcc.claude.session import TaskState
+from chatcc.claude.task_manager import TaskManager
+
+
+@pytest.fixture
+def mock_pm():
+    pm = MagicMock()
+    project_a = MagicMock()
+    project_a.name = "proj-a"
+    project_a.path = "/tmp/proj-a"
+    project_b = MagicMock()
+    project_b.name = "proj-b"
+    project_b.path = "/tmp/proj-b"
+    pm.get_project.side_effect = lambda name: {"proj-a": project_a, "proj-b": project_b}.get(name)
+    return pm
+
+
+def test_get_session_creates_session_for_known_project(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    s = tm.get_session("proj-a")
+    assert s is not None
+    assert s.project.name == "proj-a"
+    assert tm.get_session("proj-a") is s
+
+
+def test_get_session_returns_none_for_unknown_project(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    assert tm.get_session("unknown") is None
+
+
+@pytest.mark.asyncio
+async def test_submit_task_unknown_project(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    result = await tm.submit_task("nope", "x")
+    assert "不存在" in result
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_submit_task_success(MockSession, mock_pm):
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.send_task = AsyncMock()
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    result = await tm.submit_task("proj-a", "build feature X")
+    assert "已提交" in result
+
+    await asyncio.wait_for(_wait_send_task(mock_session), timeout=2.0)
+    mock_session.send_task.assert_called_once_with("build feature X")
+    assert mock_session.task_state == TaskState.COMPLETED
+
+
+async def _wait_send_task(mock_session, timeout: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if mock_session.send_task.await_count > 0:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("send_task was not awaited in time")
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_submit_task_rejects_when_running(MockSession, mock_pm):
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+
+    async def slow_send(_prompt: str) -> None:
+        mock_session.task_state = TaskState.RUNNING
+        await asyncio.sleep(10)
+
+    mock_session.send_task = slow_send
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "first")
+    await asyncio.sleep(0.05)
+
+    second = await tm.submit_task("proj-a", "second")
+    assert "正在执行" in second or "请等待" in second
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_submit_task_parallel_across_projects(MockSession, mock_pm):
+    by_name: dict[str, AsyncMock] = {}
+
+    def make_session(*_a, project, **_kw):
+        name = project.name
+        if name in by_name:
+            return by_name[name]
+        s = AsyncMock()
+        s.project = project
+        s.task_state = TaskState.IDLE
+        s.send_task = AsyncMock()
+        by_name[name] = s
+        return s
+
+    MockSession.side_effect = make_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "a1")
+    await tm.submit_task("proj-b", "b1")
+    await asyncio.sleep(0.15)
+
+    assert by_name["proj-a"].send_task.await_count == 1
+    assert by_name["proj-b"].send_task.await_count == 1
+
+
+async def _long_send_task(_prompt: str) -> None:
+    await asyncio.sleep(3600)
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_interrupt_task(MockSession, mock_pm):
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.RUNNING
+    mock_session.send_task = AsyncMock(side_effect=_long_send_task)
+    mock_session.interrupt = AsyncMock()
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "long")
+    await asyncio.sleep(0.02)
+
+    msg = await tm.interrupt_task("proj-a")
+    assert "已中断" in msg
+    mock_session.interrupt.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_interrupt_no_session(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    msg = await tm.interrupt_task("proj-a")
+    assert "无活跃会话" in msg
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_interrupt_not_running(MockSession, mock_pm):
+    mock_session = MagicMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    tm.get_session("proj-a")
+    msg = await tm.interrupt_task("proj-a")
+    assert "无运行中的任务" in msg
+
+
+def test_get_task_status(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    assert tm.get_task_status("proj-a") == "无活跃会话"
+    s = tm.get_session("proj-a")
+    assert s is not None
+    assert tm.get_task_status("proj-a") == "idle"
+
+
+def test_get_all_status(mock_pm):
+    tm = TaskManager(project_manager=mock_pm)
+    tm.get_session("proj-a")
+    tm.get_session("proj-b")
+    assert tm.get_all_status() == {"proj-a": "idle", "proj-b": "idle"}
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_shutdown_cancels_and_disconnects(MockSession, mock_pm):
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.send_task = AsyncMock(side_effect=_long_send_task)
+    mock_session.disconnect = AsyncMock()
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "x")
+    await asyncio.sleep(0.02)
+    await tm.shutdown()
+
+    mock_session.disconnect.assert_awaited()
+    assert tm.get_all_status() == {}
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_run_task_sets_failed_on_error(MockSession, mock_pm):
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.send_task = AsyncMock(side_effect=RuntimeError("boom"))
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "x")
+    await asyncio.sleep(0.15)
+
+    assert mock_session.task_state == TaskState.FAILED
