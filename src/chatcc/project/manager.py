@@ -9,10 +9,25 @@ from chatcc.project.models import Project, ProjectConfig
 
 
 class ProjectManager:
-    def __init__(self, data_dir: Path | None = None):
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        workspace_root: Path | str | None = None,
+    ):
         self._data_dir = data_dir or (Path.home() / ".chatcc" / "projects")
+        self._workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root else Path.home() / "projects"
         self._projects: dict[str, Project] = {}
         self._load_all()
+
+    def _resolve_project_path(self, path: str) -> str:
+        """Resolve a project path against workspace_root if it's relative.
+
+        Handles ~ expansion in both the path and workspace_root.
+        """
+        p = Path(path).expanduser()
+        if p.is_absolute():
+            return str(p.resolve())
+        return str((self._workspace_root / p).resolve())
 
     @property
     def default_project(self) -> Project | None:
@@ -30,7 +45,8 @@ class ProjectManager:
             raise ValueError(f"Project '{name}' already exists")
 
         is_default = len(self._projects) == 0
-        project = Project(name=name, path=path, is_default=is_default)
+        resolved_path = self._resolve_project_path(path)
+        project = Project(name=name, path=resolved_path, is_default=is_default)
         self._projects[name] = project
         self._save_project(project)
         return project
@@ -104,7 +120,7 @@ class ProjectManager:
                 claude_opts = data.get("claude_options", {})
                 project = Project(
                     name=data["name"],
-                    path=data["path"],
+                    path=self._resolve_project_path(data["path"]),
                     created_at=datetime.fromisoformat(
                         data.get("created_at", datetime.now().isoformat())
                     ),

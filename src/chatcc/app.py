@@ -26,7 +26,10 @@ class Application:
         self.config = config or load_config()
 
         # Core subsystems
-        self.project_manager = ProjectManager(data_dir=CHATCC_HOME / "projects")
+        self.project_manager = ProjectManager(
+            data_dir=CHATCC_HOME / "projects",
+            workspace_root=self.config.security.workspace_root,
+        )
         self.approval_table = ApprovalTable()
         self.cost_tracker = CostTracker(budget_limit=self.config.budget.daily_limit)
         self.history = ConversationHistory(storage_dir=CHATCC_HOME / "history")
