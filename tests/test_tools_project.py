@@ -30,6 +30,8 @@ def test_project_tools_registered(dispatcher: Dispatcher) -> None:
         "execute_command",
         "get_project_info",
         "get_task_status",
+        "install_mcp",
+        "install_skill",
         "interrupt_task",
         "list_projects",
         "new_session",
