@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ from .crypto import (
 from .ilink import (
     CDN_BASE_URL,
     DEFAULT_BASE_URL,
+    DEFAULT_CRED_PATH,
     ApiError,
     CDNMedia,
     Credentials,
@@ -54,6 +56,7 @@ from .ilink import (
     clear_credentials,
     detect_type,
     extract_text,
+    load_credentials,
     login,
     parse_cdn_media,
 )
@@ -72,23 +75,39 @@ class WeChatChannel(MessageChannel):
         *,
         existing: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        import questionary as q
+        import asyncio
 
         ex = existing or {}
 
-        q.print("=== 微信 iLink Bot 认证 ===", style="bold fg:cyan")
-        q.print("首次使用需要扫码登录，凭证会保存到 ~/.wechatbot/credentials.json", style="fg:yellow")
-        cred_path = ui.prompt(
+        ui.echo("=== 微信 iLink Bot 认证 ===")
+        cred_path_str = ui.prompt(
             "凭证文件路径 (留空使用默认 ~/.wechatbot/credentials.json)",
             default=ex.get("cred_path", ""),
         )
+        cred_path = Path(cred_path_str) if cred_path_str else None
+
         default_allowed = ",".join(str(u) for u in ex.get("allowed_users", []))
         allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default=default_allowed)
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
-        return {
-            "cred_path": cred_path or "",
-            "allowed_users": allowed_list,
-        }
+
+        stored = asyncio.run(load_credentials(cred_path))
+        if stored:
+            reauth = ui.confirm(
+                f"已有保存的凭证 (user_id: {stored.user_id})，是否重新扫码?",
+                default=False,
+            )
+            if not reauth:
+                ui.echo(f"使用已保存的凭证 ✓")
+                return {"cred_path": cred_path_str or "", "allowed_users": allowed_list}
+
+        ui.echo("正在获取二维码...")
+        try:
+            creds = asyncio.run(_qr_login_sync(ui, cred_path))
+            ui.echo(f"✅ 登录成功 (user_id: {creds.user_id})")
+        except Exception as e:
+            raise ValueError(f"登录失败: {e}") from e
+
+        return {"cred_path": cred_path_str or "", "allowed_users": allowed_list}
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
@@ -172,7 +191,10 @@ class WeChatChannel(MessageChannel):
         self._callback = callback
 
     def is_authenticated(self) -> bool:
-        return self._credentials is not None
+        if self._credentials is not None:
+            return True
+        target = self._cred_path or DEFAULT_CRED_PATH
+        return target.exists()
 
     async def send_typing(self, chat_id: str) -> None:
         ct = self._context_tokens.get(chat_id)
@@ -497,3 +519,81 @@ def _chunk_text(text: str, limit: int) -> list[str]:
         chunks.append(text[:cut])
         text = text[cut:]
     return chunks or [""]
+
+
+# ── Interactive QR login (runs in sync context via asyncio.run) ──────
+
+
+def _print_qr_terminal(data: str) -> None:
+    """Generate and print a QR code in the terminal."""
+    try:
+        import qrcode
+
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L, border=1)
+        qr.add_data(data)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except ImportError:
+        print(f"  (qrcode 库未安装，请手动打开此链接扫码)\n  {data}", file=sys.stderr)
+
+
+async def _qr_login_sync(ui: "SetupUI", cred_path: Path | None) -> Credentials:
+    """Run QR login with terminal QR display. Called via asyncio.run()."""
+    from .ilink import (
+        QR_POLL_INTERVAL,
+        AuthError,
+        ILinkApi,
+        save_credentials,
+    )
+    from datetime import datetime, timezone
+
+    api = ILinkApi()
+    base_url = DEFAULT_BASE_URL
+
+    while True:
+        qr = await api.get_qr_code(base_url)
+        qr_url = qr["qrcode_img_content"]
+
+        ui.echo("")
+        ui.echo("请使用微信扫描以下二维码:")
+        ui.echo("")
+        _print_qr_terminal(qr_url)
+        ui.echo("")
+        ui.echo(f"或在浏览器中打开: {qr_url}")
+        ui.echo("")
+
+        last_status = ""
+        while True:
+            status = await api.poll_qr_status(base_url, qr["qrcode"])
+            current = status["status"]
+
+            if current != last_status:
+                last_status = current
+                if current == "scaned":
+                    ui.echo("📱 已扫码 — 请在微信中确认登录...")
+                elif current == "expired":
+                    ui.echo("⏰ 二维码已过期，正在重新获取...")
+                elif current == "confirmed":
+                    ui.echo("✓ 登录已确认")
+
+            if current == "confirmed":
+                token = status.get("bot_token")
+                bot_id = status.get("ilink_bot_id")
+                user_id = status.get("ilink_user_id")
+                if not token or not bot_id or not user_id:
+                    raise AuthError("Login confirmed but missing credentials")
+
+                creds = Credentials(
+                    token=token,
+                    base_url=status.get("baseurl") or base_url,
+                    account_id=bot_id,
+                    user_id=user_id,
+                    saved_at=datetime.now(timezone.utc).isoformat(),
+                )
+                await save_credentials(creds, cred_path)
+                return creds
+
+            if current == "expired":
+                break
+
+            await asyncio.sleep(QR_POLL_INTERVAL)
