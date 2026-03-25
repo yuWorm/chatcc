@@ -47,7 +47,10 @@ class TelegramChannel(MessageChannel):
         if not token or ":" not in token:
             raise ValueError("Token 格式无效 (应为 数字:字母串)")
 
-        allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default="")
+        allowed = ui.prompt(
+            "允许的用户 ID 或用户名 (逗号分隔, 用户名不加@, 留空允许所有)",
+            default="",
+        )
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
 
         return {
@@ -157,10 +160,14 @@ class TelegramChannel(MessageChannel):
     def is_authenticated(self) -> bool:
         return bool(self._token)
 
-    def _is_user_allowed(self, user_id: str) -> bool:
+    def _is_user_allowed(self, user_id: str, username: str | None = None) -> bool:
         if not self._allowed_users:
             return True
-        return str(user_id) in self._allowed_users
+        if str(user_id) in self._allowed_users:
+            return True
+        if username and username.lower() in (u.lower() for u in self._allowed_users):
+            return True
+        return False
 
     @staticmethod
     def _split_text(text: str, max_len: int) -> list[str]:
@@ -181,8 +188,13 @@ class TelegramChannel(MessageChannel):
     async def _handle_text_message(self, update: Update, context: Any) -> None:
         if not update.message or not update.message.text:
             return
-        user_id = str(update.message.from_user.id)
-        if not self._is_user_allowed(user_id):
+        user = update.message.from_user
+        user_id = str(user.id)
+        username = user.username
+        logger.info("收到文本消息: user=%s (@%s), chat=%s, text=%s",
+                     user_id, username, update.message.chat_id, update.message.text)
+        if not self._is_user_allowed(user_id, username):
+            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
             return
         if self._callback:
             msg = InboundMessage(
@@ -196,8 +208,13 @@ class TelegramChannel(MessageChannel):
     async def _handle_command_message(self, update: Update, context: Any) -> None:
         if not update.message or not update.message.text:
             return
-        user_id = str(update.message.from_user.id)
-        if not self._is_user_allowed(user_id):
+        user = update.message.from_user
+        user_id = str(user.id)
+        username = user.username
+        logger.info("收到命令消息: user=%s (@%s), chat=%s, command=%s",
+                     user_id, username, update.message.chat_id, update.message.text)
+        if not self._is_user_allowed(user_id, username):
+            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
             return
         if self._callback:
             msg = InboundMessage(
@@ -216,7 +233,11 @@ class TelegramChannel(MessageChannel):
         await query.answer()
 
         user_id = str(query.from_user.id)
-        if not self._is_user_allowed(user_id):
+        username = query.from_user.username
+        logger.info("收到回调按钮: user=%s (@%s), chat=%s, data=%s",
+                     user_id, username, query.message.chat_id, query.data)
+        if not self._is_user_allowed(user_id, username):
+            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
             return
 
         if self._callback:
