@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from chatcc.channel.base import MessageChannel
 from chatcc.channel.message import (
