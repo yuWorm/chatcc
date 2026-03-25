@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from chatcc.memory.history import ConversationHistory
 from chatcc.memory.longterm import LongTermMemory
 
-logger = logging.getLogger("chatcc.memory.summary")
+from loguru import logger
 
 
 class SummaryManager:

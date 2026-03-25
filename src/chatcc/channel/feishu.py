@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -27,7 +26,7 @@ from chatcc.channel.message import (
 if TYPE_CHECKING:
     from chatcc.setup.ui import SetupUI
 
-logger = logging.getLogger("chatcc.channel.feishu")
+from loguru import logger
 
 
 class FeishuChannel(MessageChannel):

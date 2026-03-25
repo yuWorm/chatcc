@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -154,10 +154,9 @@ def _run_provider_setup(
 @click.option("--debug", is_flag=True, default=False)
 def run(config_path: str | None, debug: bool):
     """启动 ChatCC"""
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    from loguru import logger
+    logger.remove()
+    logger.add(sys.stderr, level="DEBUG" if debug else "INFO")
 
     from chatcc.config import load_config
     from chatcc.app import Application

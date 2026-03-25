@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -33,7 +32,7 @@ from chatcc.channel.message import (
 if TYPE_CHECKING:
     from chatcc.setup.ui import SetupUI
 
-logger = logging.getLogger("chatcc.channel.telegram")
+from loguru import logger
 
 
 class TelegramChannel(MessageChannel):

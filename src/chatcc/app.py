@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 
 from chatcc.agent.dispatcher import AgentDeps, Dispatcher
 from chatcc.agent.provider import build_model_from_config
@@ -19,7 +18,7 @@ from chatcc.project.manager import ProjectManager
 from chatcc.router.router import MessageRouter
 from chatcc.service.manager import ServiceManager
 
-logger = logging.getLogger("chatcc")
+from loguru import logger
 
 
 class Application:
