@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from telegram import (
     Bot,
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
@@ -31,6 +32,7 @@ from chatcc.channel.message import (
 )
 
 if TYPE_CHECKING:
+    from chatcc.command.spec import CommandSpec
     from chatcc.setup.ui import SetupUI
 
 from loguru import logger
@@ -175,6 +177,19 @@ class TelegramChannel(MessageChannel):
     async def send_typing(self, chat_id: str) -> None:
         if self._bot:
             await self._bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    async def register_commands(self, commands: list[CommandSpec]) -> None:
+        if not self._bot:
+            return
+        bot_commands = [
+            BotCommand(command=spec.name, description=spec.description)
+            for spec in commands
+        ]
+        try:
+            await self._bot.set_my_commands(bot_commands)
+            logger.info("Telegram 菜单已注册 {} 条命令", len(bot_commands))
+        except Exception:
+            logger.exception("注册 Telegram 命令菜单失败")
 
     def _is_user_allowed(self, user_id: str, username: str | None = None) -> bool:
         if not self._allowed_users:

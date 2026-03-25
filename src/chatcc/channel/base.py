@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from chatcc.channel.message import InboundMessage, OutboundMessage, RichMessage
 
 if TYPE_CHECKING:
+    from chatcc.command.spec import CommandSpec
     from chatcc.setup.ui import SetupUI
 
 
@@ -51,3 +52,6 @@ class MessageChannel(ABC):
 
     async def send_typing(self, chat_id: str) -> None:
         """发送"正在输入"状态提示。不支持的渠道默认忽略。"""
+
+    async def register_commands(self, commands: list[CommandSpec]) -> None:
+        """将命令列表注册到平台菜单。不支持的渠道默认忽略。"""

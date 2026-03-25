@@ -9,13 +9,15 @@ from chatcc.channel.base import MessageChannel
 from chatcc.channel.factory import create_channel
 from chatcc.channel.message import InboundMessage, OutboundMessage
 from chatcc.claude.task_manager import TaskManager
+from chatcc.command.commands import get_builtin_commands
+from chatcc.command.registry import CommandRegistry
 from chatcc.config import CHATCC_HOME, AppConfig, load_config
 from chatcc.cost.tracker import CostTracker
 from chatcc.memory.history import ConversationHistory
 from chatcc.memory.longterm import LongTermMemory
 from chatcc.memory.summary import SummaryManager
 from chatcc.project.manager import ProjectManager
-from chatcc.router.router import MessageRouter
+from chatcc.router.router import MessageRouter, RouteResult
 from chatcc.service.manager import ServiceManager
 
 from loguru import logger
@@ -46,15 +48,18 @@ class Application:
             on_notify=self._on_claude_notify,
         )
 
+        # Command system
+        self.command_registry = CommandRegistry()
+        self.command_registry.register_many(get_builtin_commands())
+
         # Channel and routing
         self.channel: MessageChannel | None = None
-        self.router = MessageRouter()
+        self.router = MessageRouter(registry=self.command_registry)
         self.dispatcher: Dispatcher | None = None
         self._running = False
         self._last_chat_id: str | None = None
 
     async def _on_claude_notify(self, project_name: str, message: str) -> None:
-        """Callback for Claude Code notifications → forward to IM"""
         if self.channel and self._last_chat_id:
             await self.channel.send(
                 OutboundMessage(
@@ -74,6 +79,7 @@ class Application:
 
         self._running = True
         await self.channel.start()
+        await self.channel.register_commands(self.command_registry.all_specs)
 
         logger.info(f"ChatCC running with channel: {self.config.channel.type}")
 
@@ -124,17 +130,26 @@ class Application:
                 f"Provider '{self.config.agent.active_provider}' not found in config"
             )
 
+    # ── Message routing ──────────────────────────────────────────────
+
     async def _on_message(self, message: InboundMessage):
         result = await self.router.route(message)
 
         if result.intercepted:
-            await self._handle_command(result.command, result.args, message)
+            await self._handle_intercept(result, message)
+        elif result.augmented:
+            await self._handle_augmented(result, message)
         else:
             await self._handle_agent_message(message)
 
-    async def _handle_command(
-        self, command: str, args: list[str], message: InboundMessage
+    # ── Intercept commands (bypass agent, instant response) ──────────
+
+    async def _handle_intercept(
+        self, result: RouteResult, message: InboundMessage
     ):
+        command = result.command
+        args = result.args
+
         match command:
             case "/y":
                 if args and args[0] == "all":
@@ -186,26 +201,8 @@ class Application:
                         )
                     response = "\n".join(lines)
 
-            case "/stop":
-                dp = self.project_manager.default_project
-                if dp:
-                    result = await self.task_manager.interrupt_task(dp.name)
-                    response = result
-                else:
-                    response = "未设置默认项目"
-
-            case "/status":
-                lines = [
-                    f"项目数: {self.project_manager.active_count}",
-                    f"待审批: {self.approval_table.pending_count}",
-                ]
-                all_status = self.task_manager.get_all_status()
-                if all_status:
-                    lines.append("活跃会话:")
-                    for name, status in all_status.items():
-                        lines.append(f"  - {name}: {status}")
-                lines.append(self.cost_tracker.summary())
-                response = "\n".join(lines)
+            case "/help":
+                response = self.command_registry.help_text()
 
             case _:
                 response = f"未知命令: {command}"
@@ -214,19 +211,64 @@ class Application:
             OutboundMessage(chat_id=message.chat_id, content=response)
         )
 
-    async def _compress_history(self) -> None:
-        """Background task to compress conversation history"""
-        try:
-            summary = await self.summary_manager.compress()
-            if summary:
-                logger.info("History compressed: {}", summary[:100])
-        except Exception:
-            logger.exception("Failed to compress history")
+    # ── Augmented commands (prompt injection → agent) ────────────────
 
-    async def _send_to_channel(self, message: OutboundMessage) -> None:
-        """Helper for tools to send messages back to IM"""
-        if self.channel:
-            await self.channel.send(message)
+    async def _handle_augmented(
+        self, result: RouteResult, message: InboundMessage
+    ):
+        if not self.dispatcher:
+            await self.channel.send(
+                OutboundMessage(
+                    chat_id=message.chat_id,
+                    content="AI 供应商未配置，无法处理消息",
+                )
+            )
+            return
+
+        self._last_chat_id = message.chat_id
+        await self.channel.send_typing(message.chat_id)
+
+        self.history.add_message("user", message.content)
+
+        deps = AgentDeps(
+            project_manager=self.project_manager,
+            approval_table=self.approval_table,
+            cost_tracker=self.cost_tracker,
+            history=self.history,
+            longterm_memory=self.longterm_memory,
+            task_manager=self.task_manager,
+            service_manager=self.service_manager,
+            send_fn=self._send_to_channel,
+            chat_id=message.chat_id,
+        )
+
+        agent_input = result.augmented_prompt or message.content
+
+        try:
+            run_result = await self.dispatcher.agent.run(agent_input, deps=deps)
+            response_text = run_result.output
+
+            self.history.add_message("assistant", response_text)
+
+            if self.summary_manager.should_compress():
+                asyncio.create_task(self._compress_history())
+
+            await self.channel.send(
+                OutboundMessage(chat_id=message.chat_id, content=response_text)
+            )
+        except Exception as e:
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
+            if isinstance(e, UnexpectedModelBehavior):
+                logger.error("Agent error: {}", e)
+            else:
+                logger.exception("Agent error")
+            await self.channel.send(
+                OutboundMessage(
+                    chat_id=message.chat_id, content=f"处理消息时出错: {e}"
+                )
+            )
+
+    # ── Normal agent message (passthrough) ───────────────────────────
 
     async def _handle_agent_message(self, message: InboundMessage):
         if not self.dispatcher:
@@ -268,9 +310,27 @@ class Application:
                 OutboundMessage(chat_id=message.chat_id, content=response_text)
             )
         except Exception as e:
-            logger.exception("Agent error")
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
+            if isinstance(e, UnexpectedModelBehavior):
+                logger.error("Agent error: {}", e)
+            else:
+                logger.exception("Agent error")
             await self.channel.send(
                 OutboundMessage(
                     chat_id=message.chat_id, content=f"处理消息时出错: {e}"
                 )
             )
+
+    # ── Helpers ──────────────────────────────────────────────────────
+
+    async def _compress_history(self) -> None:
+        try:
+            summary = await self.summary_manager.compress()
+            if summary:
+                logger.info("History compressed: {}", summary[:100])
+        except Exception:
+            logger.exception("Failed to compress history")
+
+    async def _send_to_channel(self, message: OutboundMessage) -> None:
+        if self.channel:
+            await self.channel.send(message)
