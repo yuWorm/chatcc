@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from chatcc.claude.session import ProjectSession, TaskState
+from chatcc.project.models import TaskRecord
+from chatcc.project.task_log import TaskLog
 
 if TYPE_CHECKING:
     from chatcc.approval.table import ApprovalTable
@@ -25,7 +28,7 @@ class TaskManager:
         self._on_notify = on_notify
         self._sessions: dict[str, ProjectSession] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
-        self._task_queues: dict[str, asyncio.Queue[Any]] = {}
+        self._task_logs: dict[str, TaskLog] = {}
 
     def get_session(self, project_name: str) -> ProjectSession | None:
         """Get existing session for a project, or create one if the project exists"""
@@ -43,6 +46,16 @@ class TaskManager:
         self._sessions[project_name] = session
         return session
 
+    def get_task_log(self, project_name: str) -> TaskLog | None:
+        if project_name in self._task_logs:
+            return self._task_logs[project_name]
+        data_dir = self._project_manager.project_dir(project_name)
+        if not data_dir:
+            return None
+        log = TaskLog(data_dir / "tasks.jsonl")
+        self._task_logs[project_name] = log
+        return log
+
     async def submit_task(self, project_name: str, prompt: str) -> str:
         """Submit a dev task to a project. Returns status message.
         Same project serialized (rejects if RUNNING), cross-project parallel."""
@@ -53,28 +66,44 @@ class TaskManager:
         if session.task_state == TaskState.RUNNING:
             return f"项目 '{project_name}' 正在执行任务，请等待完成或使用 /stop"
 
-        task = asyncio.create_task(self._run_task(session, prompt))
-        self._running_tasks[project_name] = task
-        return f"任务已提交到项目 '{project_name}'"
+        record = TaskRecord(prompt=prompt, session_id=session.active_session_id)
+        session.project.current_task = record
 
-    async def _run_task(self, session: ProjectSession, prompt: str) -> None:
+        task = asyncio.create_task(self._run_task(session, prompt, record))
+        self._running_tasks[project_name] = task
+        return f"任务已提交到项目 '{project_name}' (#{record.id})"
+
+    async def _run_task(
+        self, session: ProjectSession, prompt: str, record: TaskRecord
+    ) -> None:
         """Execute a task on a session, handle completion/failure"""
         project_name = session.project.name
         try:
             result = await session.send_task(prompt)
             session.task_state = TaskState.COMPLETED
             cost = result.get("cost", 0.0) if result else 0.0
+            record.status = "completed"
+            record.cost_usd = cost
+            record.session_id = result.get("session_id") if result else record.session_id
             await self._notify(project_name, f"✅ 任务完成 (${cost:.4f})")
         except asyncio.CancelledError:
             session.task_state = TaskState.CANCELLED
+            record.status = "cancelled"
             await self._notify(project_name, "⏹️ 任务已取消")
             raise
         except Exception as exc:
             session.task_state = TaskState.FAILED
+            record.status = "failed"
+            record.error = str(exc)[:500]
             await self._notify(project_name, f"❌ 任务失败: {exc}")
             raise
         finally:
+            record.completed_at = datetime.now()
             self._running_tasks.pop(project_name, None)
+            task_log = self.get_task_log(project_name)
+            if task_log:
+                task_log.append(record)
+            session.project.current_task = None
 
     async def _notify(self, project_name: str, message: str) -> None:
         if self._on_notify:

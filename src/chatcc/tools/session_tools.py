@@ -25,8 +25,8 @@ def register_session_tools(agent: Agent) -> None:
         return await tm.submit_task(proj_name, prompt)
 
     @agent.tool
-    def get_task_status(ctx: RunContext[Any], project: str = "") -> str:
-        """获取项目的 Claude Code 任务状态"""
+    def get_task_status(ctx: RunContext[Any], project: str = "", history: int = 0) -> str:
+        """获取项目的 Claude Code 任务状态。设置 history > 0 可查看最近 N 条历史任务。"""
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm or not pm:
@@ -43,7 +43,29 @@ def register_session_tools(agent: Agent) -> None:
         if not proj_name:
             return "错误: 未找到目标项目"
 
-        return f"[{proj_name}] {tm.get_task_status(proj_name)}"
+        proj = pm.get_project(proj_name)
+        lines = [f"[{proj_name}] 状态: {tm.get_task_status(proj_name)}"]
+
+        if proj and proj.current_task:
+            t = proj.current_task
+            lines.append(f"  当前任务 #{t.id}: {t.prompt[:80]}")
+
+        if history > 0:
+            task_log = tm.get_task_log(proj_name)
+            if task_log:
+                records = task_log.latest(history)
+                if records:
+                    lines.append(f"最近 {len(records)} 条历史:")
+                    for r in reversed(records):
+                        cost = f"${r.cost_usd:.4f}" if r.cost_usd else ""
+                        err = f" | {r.error[:60]}" if r.error else ""
+                        lines.append(
+                            f"  #{r.id} [{r.status}] {r.prompt[:60]} {cost}{err}"
+                        )
+                else:
+                    lines.append("暂无历史任务记录")
+
+        return "\n".join(lines)
 
     @agent.tool
     async def interrupt_task(ctx: RunContext[Any], project: str = "") -> str:

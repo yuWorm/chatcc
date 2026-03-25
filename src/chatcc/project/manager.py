@@ -57,6 +57,11 @@ class ProjectManager:
     def get_project(self, name: str) -> Project | None:
         return self._projects.get(name)
 
+    def project_dir(self, name: str) -> Path | None:
+        if name not in self._projects:
+            return None
+        return self._data_dir / name
+
     def switch_default(self, name: str) -> Project:
         if name not in self._projects:
             raise ValueError(f"Project '{name}' not found")
