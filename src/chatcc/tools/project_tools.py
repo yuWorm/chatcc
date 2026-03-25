@@ -44,6 +44,7 @@ def register_project_tools(agent: Agent) -> None:
 
     @agent.tool
     def get_project_info(ctx: RunContext[Any], name: str = "") -> str:
+        """查看项目详细信息，包含完整配置。不传 name 则查看默认项目。"""
         pm = ctx.deps.project_manager
         if not pm:
             return "错误: 项目管理器未初始化"
@@ -60,10 +61,51 @@ def register_project_tools(agent: Agent) -> None:
             f"路径: {p.path}",
             f"默认: {'是' if p.is_default else '否'}",
             f"创建时间: {p.created_at.isoformat()}",
+            f"权限模式: {p.config.permission_mode}",
+            f"配置源: {', '.join(p.config.setting_sources)}",
+            f"模型: {p.config.model or '(默认)'}",
         ]
-        if p.config.model:
-            lines.append(f"模型: {p.config.model}")
         return "\n".join(lines)
+
+    @agent.tool
+    def update_project_config(
+        ctx: RunContext[Any],
+        name: str = "",
+        model: str = "",
+        permission_mode: str = "",
+        setting_sources: str = "",
+    ) -> str:
+        """修改项目配置。不传 name 则修改默认项目。
+        setting_sources 用逗号分隔，如 'project,user'。
+        传空字符串的字段不会被修改。"""
+        pm = ctx.deps.project_manager
+        if not pm:
+            return "错误: 项目管理器未初始化"
+
+        if not name:
+            dp = pm.default_project
+            if not dp:
+                return "错误: 未设置默认项目"
+            name = dp.name
+
+        kwargs: dict = {}
+        if model:
+            kwargs["model"] = model
+        if permission_mode:
+            kwargs["permission_mode"] = permission_mode
+        if setting_sources:
+            kwargs["setting_sources"] = [s.strip() for s in setting_sources.split(",")]
+
+        if not kwargs:
+            return "未指定任何要修改的配置项"
+
+        try:
+            project = pm.update_config(name, **kwargs)
+        except ValueError as e:
+            return f"修改失败: {e}"
+
+        changed = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        return f"项目 '{project.name}' 配置已更新: {changed}"
 
     @agent.tool
     def delete_project(ctx: RunContext[Any], name: str) -> str:

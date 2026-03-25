@@ -158,6 +158,116 @@ def register_session_tools(agent: Agent) -> None:
         return "\n".join(lines)
 
 
+    @agent.tool
+    def session_dashboard(ctx: RunContext[Any]) -> str:
+        """跨项目会话仪表盘：显示所有项目的 SDK 连接状态、任务状态、活跃会话和累计统计。"""
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        projects = pm.list_projects()
+        if not projects:
+            return "暂无项目"
+
+        lines: list[str] = ["=== Claude Code 会话仪表盘 ==="]
+        total_cost = 0.0
+        total_tasks = 0
+
+        for proj in projects:
+            name = proj.name
+            marker = " ⭐" if proj.is_default else ""
+            session = tm.get_session(name)
+
+            connected = "🟢 已连接" if (session and session.client) else "⚪ 未连接"
+            state = session.task_state.value if session else "idle"
+
+            current_info = ""
+            if session and proj.current_task:
+                t = proj.current_task
+                current_info = f"\n    当前任务: #{t.id} {t.prompt[:60]}"
+
+            session_id_str = ""
+            if session and session.active_session_id:
+                session_id_str = f" | 会话: {session.active_session_id[:8]}…"
+
+            session_log = tm.get_session_log(name)
+            task_log = tm.get_task_log(name)
+            session_count = session_log.count() if session_log else 0
+            task_count = task_log.count() if task_log else 0
+            total_tasks += task_count
+
+            cost_str = ""
+            if session_log:
+                active_rec = session_log.active()
+                if active_rec:
+                    total_cost += active_rec.total_cost_usd
+                    cost_str = f" | 当前会话花费: ${active_rec.total_cost_usd:.4f}"
+
+            lines.append(
+                f"\n[{name}]{marker}\n"
+                f"  连接: {connected} | 状态: {state}{session_id_str}\n"
+                f"  累计: {task_count} 任务 / {session_count} 会话{cost_str}"
+                f"{current_info}"
+            )
+
+        lines.append(f"\n--- 全局: {len(projects)} 个项目 | {total_tasks} 任务 | 花费 ${total_cost:.4f} ---")
+        return "\n".join(lines)
+
+    @agent.tool
+    def get_task_history(
+        ctx: RunContext[Any],
+        project: str = "",
+        count: int = 10,
+        status: str = "",
+    ) -> str:
+        """查看项目的详细任务历史记录。可按 status (completed/failed/cancelled) 过滤。"""
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        task_log = tm.get_task_log(proj_name)
+        if not task_log:
+            return f"错误: 项目 '{proj_name}' 不存在"
+
+        total = task_log.count()
+        records = task_log.latest(max(count, total))
+        if status:
+            records = [r for r in records if r.status == status]
+        records = records[-count:]
+
+        if not records:
+            filter_hint = f" (过滤: {status})" if status else ""
+            return f"[{proj_name}] 暂无任务记录{filter_hint}"
+
+        lines: list[str] = [f"[{proj_name}] 任务历史 ({len(records)}/{total}):"]
+        for r in reversed(records):
+            cost = f"${r.cost_usd:.4f}" if r.cost_usd else "-"
+            err = f"\n    错误: {r.error[:80]}" if r.error else ""
+            sid = f" | 会话: {r.session_id[:8]}…" if r.session_id else ""
+            duration = ""
+            if r.completed_at and r.submitted_at:
+                delta = r.completed_at - r.submitted_at
+                secs = int(delta.total_seconds())
+                if secs >= 60:
+                    duration = f" | 耗时: {secs // 60}m{secs % 60}s"
+                else:
+                    duration = f" | 耗时: {secs}s"
+
+            lines.append(
+                f"  #{r.id} [{r.status}] {r.submitted_at:%m-%d %H:%M}\n"
+                f"    {r.prompt[:100]}\n"
+                f"    花费: {cost}{duration}{sid}{err}"
+            )
+
+        return "\n".join(lines)
+
+
 def _resolve_project_name(pm: Any, project: str) -> str | None:
     if project:
         proj = pm.get_project(project)

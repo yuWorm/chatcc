@@ -42,6 +42,7 @@ class Dispatcher:
             model_id,
             deps_type=AgentDeps,
             instructions=self._build_instructions,
+            retries=3,
         )
 
         self._register_tools()

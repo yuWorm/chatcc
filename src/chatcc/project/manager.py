@@ -76,6 +76,28 @@ class ProjectManager:
         self._save_project(project)
         return project
 
+    def update_config(
+        self,
+        name: str,
+        *,
+        model: str | None = ...,
+        permission_mode: str | None = ...,
+        setting_sources: list[str] | None = ...,
+    ) -> Project:
+        project = self._projects.get(name)
+        if not project:
+            raise ValueError(f"Project '{name}' not found")
+
+        if model is not ...:
+            project.config.model = model
+        if permission_mode is not ...:
+            project.config.permission_mode = permission_mode or "acceptEdits"
+        if setting_sources is not ...:
+            project.config.setting_sources = setting_sources or ["project"]
+
+        self._save_project(project)
+        return project
+
     def delete_project(self, name: str) -> None:
         project = self._projects.pop(name, None)
         if not project:
