@@ -54,11 +54,57 @@ class ProjectSession:
             await self.client.connect()
         return self.client
 
-    async def send_task(self, prompt: str) -> None:
+    async def consume_response(self) -> dict[str, Any] | None:
+        """Consume Claude Code response stream, forwarding notifications to IM.
+
+        Returns the final result or None if interrupted/failed.
+        """
+        if not self.client:
+            return None
+
+        result: dict[str, Any] | None = None
+        try:
+            async for message in self.client.receive_response():
+                msg_type = getattr(message, "type", None)
+
+                if msg_type == "assistant":
+                    content_blocks = getattr(message, "content", [])
+                    for block in content_blocks:
+                        text = getattr(block, "text", None)
+                        if text and self._on_notification:
+                            await self._on_notification(self.project.name, text)
+                elif msg_type == "result":
+                    self.task_state = TaskState.COMPLETED
+                    result = {
+                        "type": "result",
+                        "session_id": getattr(
+                            message, "session_id", self.active_session_id
+                        ),
+                        "cost": getattr(message, "cost_usd", 0.0),
+                    }
+                    sid = getattr(message, "session_id", None)
+                    if sid:
+                        self.active_session_id = sid
+                    break
+        except asyncio.CancelledError:
+            self.task_state = TaskState.CANCELLED
+            raise
+        except Exception:
+            self.task_state = TaskState.FAILED
+            raise
+
+        return result
+
+    async def send_task(self, prompt: str) -> dict[str, Any] | None:
+        """Send a task and consume the response stream."""
         client = await self.ensure_connected()
         self.task_state = TaskState.RUNNING
         try:
             await client.query(prompt)
+            return await self.consume_response()
+        except asyncio.CancelledError:
+            self.task_state = TaskState.CANCELLED
+            raise
         except Exception:
             self.task_state = TaskState.FAILED
             raise
