@@ -59,17 +59,29 @@ class TaskManager:
 
     async def _run_task(self, session: ProjectSession, prompt: str) -> None:
         """Execute a task on a session, handle completion/failure"""
+        project_name = session.project.name
         try:
-            await session.send_task(prompt)
+            result = await session.send_task(prompt)
             session.task_state = TaskState.COMPLETED
+            cost = result.get("cost", 0.0) if result else 0.0
+            await self._notify(project_name, f"✅ 任务完成 (${cost:.4f})")
         except asyncio.CancelledError:
             session.task_state = TaskState.CANCELLED
+            await self._notify(project_name, "⏹️ 任务已取消")
             raise
-        except Exception:
+        except Exception as exc:
             session.task_state = TaskState.FAILED
+            await self._notify(project_name, f"❌ 任务失败: {exc}")
             raise
         finally:
-            self._running_tasks.pop(session.project.name, None)
+            self._running_tasks.pop(project_name, None)
+
+    async def _notify(self, project_name: str, message: str) -> None:
+        if self._on_notify:
+            try:
+                await self._on_notify(project_name, message)
+            except Exception:
+                pass
 
     async def interrupt_task(self, project_name: str) -> str:
         """Interrupt the running task for a project"""

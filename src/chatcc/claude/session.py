@@ -52,6 +52,7 @@ class ProjectSession:
         hooks = {}
         if self._on_notification:
             hooks["Notification"] = [HookMatcher(hooks=[self._notification_hook])]
+            hooks["Stop"] = [HookMatcher(hooks=[self._stop_hook])]
 
         has_permission_handling = self._approval_table or self._on_permission
         return ClaudeAgentOptions(
@@ -140,6 +141,9 @@ class ProjectSession:
             title = getattr(context, "title", "")
             body = getattr(context, "body", "")
             await self._on_notification(self.project.name, f"{title}: {body}")
+
+    async def _stop_hook(self, context: Any) -> None:
+        self.task_state = TaskState.COMPLETED
 
     async def _permission_handler(
         self,
