@@ -3,13 +3,20 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from chatcc.config import AppConfig, load_config
+from chatcc.agent.dispatcher import AgentDeps, Dispatcher
+from chatcc.agent.provider import build_model_from_config
+from chatcc.approval.table import ApprovalTable
 from chatcc.channel.base import MessageChannel
 from chatcc.channel.factory import create_channel
 from chatcc.channel.message import InboundMessage, OutboundMessage
+from chatcc.claude.task_manager import TaskManager
+from chatcc.config import CHATCC_HOME, AppConfig, load_config
+from chatcc.cost.tracker import CostTracker
+from chatcc.memory.history import ConversationHistory
+from chatcc.memory.longterm import LongTermMemory
+from chatcc.project.manager import ProjectManager
 from chatcc.router.router import MessageRouter
-from chatcc.agent.dispatcher import Dispatcher, AgentDeps
-from chatcc.agent.provider import build_model_from_config
+from chatcc.service.manager import ServiceManager
 
 logger = logging.getLogger("chatcc")
 
@@ -17,10 +24,36 @@ logger = logging.getLogger("chatcc")
 class Application:
     def __init__(self, config: AppConfig | None = None):
         self.config = config or load_config()
+
+        # Core subsystems
+        self.project_manager = ProjectManager(data_dir=CHATCC_HOME / "projects")
+        self.approval_table = ApprovalTable()
+        self.cost_tracker = CostTracker(budget_limit=self.config.budget.daily_limit)
+        self.history = ConversationHistory(storage_dir=CHATCC_HOME / "history")
+        self.longterm_memory = LongTermMemory(memory_dir=CHATCC_HOME / "memory")
+        self.service_manager = ServiceManager(services_dir=CHATCC_HOME / "services")
+        self.task_manager = TaskManager(
+            project_manager=self.project_manager,
+            approval_table=self.approval_table,
+            on_notify=self._on_claude_notify,
+        )
+
+        # Channel and routing
         self.channel: MessageChannel | None = None
         self.router = MessageRouter()
         self.dispatcher: Dispatcher | None = None
         self._running = False
+        self._last_chat_id: str | None = None
+
+    async def _on_claude_notify(self, project_name: str, message: str) -> None:
+        """Callback for Claude Code notifications → forward to IM"""
+        if self.channel and self._last_chat_id:
+            await self.channel.send(
+                OutboundMessage(
+                    chat_id=self._last_chat_id,
+                    content=f"[{project_name}] {message}",
+                )
+            )
 
     async def start(self):
         logger.info("Starting ChatCC...")
@@ -46,6 +79,10 @@ class Application:
 
     async def stop(self):
         self._running = False
+        if self.task_manager:
+            await self.task_manager.shutdown()
+        if self.service_manager:
+            await self.service_manager.stop_all()
         if self.channel:
             await self.channel.stop()
         logger.info("ChatCC stopped.")
@@ -91,20 +128,88 @@ class Application:
         self, command: str, args: list[str], message: InboundMessage
     ):
         match command:
-            case "/y" | "/n":
-                response = f"审批命令 {command} {' '.join(args)} (待实现)"
+            case "/y":
+                if args and args[0] == "all":
+                    count = self.approval_table.approve_all()
+                    response = f"已全部确认 ({count} 条)"
+                elif args:
+                    try:
+                        aid = int(args[0])
+                        if self.approval_table.approve(aid):
+                            response = f"已确认 #{aid}"
+                        else:
+                            response = f"#{aid} 不存在或已处理"
+                    except ValueError:
+                        response = f"无效的审批 ID: {args[0]}"
+                else:
+                    if self.approval_table.approve_oldest():
+                        response = "已确认最早的待审批项"
+                    else:
+                        response = "暂无待确认操作"
+
+            case "/n":
+                if args and args[0] == "all":
+                    count = self.approval_table.deny_all()
+                    response = f"已全部拒绝 ({count} 条)"
+                elif args:
+                    try:
+                        aid = int(args[0])
+                        if self.approval_table.deny(aid):
+                            response = f"已拒绝 #{aid}"
+                        else:
+                            response = f"#{aid} 不存在或已处理"
+                    except ValueError:
+                        response = f"无效的审批 ID: {args[0]}"
+                else:
+                    if self.approval_table.deny_oldest():
+                        response = "已拒绝最早的待审批项"
+                    else:
+                        response = "暂无待确认操作"
+
             case "/pending":
-                response = "暂无待确认操作 (待实现)"
+                pending = self.approval_table.list_pending()
+                if not pending:
+                    response = "暂无待确认操作"
+                else:
+                    lines = [f"待确认操作 ({len(pending)} 条):"]
+                    for p in pending:
+                        lines.append(
+                            f"  #{p.id} [{p.project}] {p.tool_name}: {p.input_summary}"
+                        )
+                    response = "\n".join(lines)
+
             case "/stop":
-                response = "停止命令已收到 (待实现)"
+                dp = self.project_manager.default_project
+                if dp:
+                    result = await self.task_manager.interrupt_task(dp.name)
+                    response = result
+                else:
+                    response = "未设置默认项目"
+
             case "/status":
-                response = "系统状态: 正常运行中"
+                lines = [
+                    f"项目数: {self.project_manager.active_count}",
+                    f"待审批: {self.approval_table.pending_count}",
+                ]
+                all_status = self.task_manager.get_all_status()
+                if all_status:
+                    lines.append("活跃会话:")
+                    for name, status in all_status.items():
+                        lines.append(f"  - {name}: {status}")
+                lines.append(self.cost_tracker.summary())
+                response = "\n".join(lines)
+
             case _:
                 response = f"未知命令: {command}"
 
         await self.channel.send(
             OutboundMessage(chat_id=message.chat_id, content=response)
         )
+
+    async def _send_to_channel(self, message: OutboundMessage) -> None:
+        """Helper for tools to send messages back to IM"""
+        if self.channel:
+            await self.channel.send(message)
 
     async def _handle_agent_message(self, message: InboundMessage):
         if not self.dispatcher:
@@ -116,12 +221,30 @@ class Application:
             )
             return
 
-        deps = AgentDeps(chat_id=message.chat_id)
+        self._last_chat_id = message.chat_id
+
+        self.history.add_message("user", message.content)
+
+        deps = AgentDeps(
+            project_manager=self.project_manager,
+            approval_table=self.approval_table,
+            cost_tracker=self.cost_tracker,
+            history=self.history,
+            longterm_memory=self.longterm_memory,
+            task_manager=self.task_manager,
+            service_manager=self.service_manager,
+            send_fn=self._send_to_channel,
+            chat_id=message.chat_id,
+        )
 
         try:
             result = await self.dispatcher.agent.run(message.content, deps=deps)
+            response_text = result.output
+
+            self.history.add_message("assistant", response_text)
+
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=result.output)
+                OutboundMessage(chat_id=message.chat_id, content=response_text)
             )
         except Exception as e:
             logger.exception("Agent error")
