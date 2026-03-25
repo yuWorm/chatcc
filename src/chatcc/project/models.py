@@ -50,6 +50,42 @@ class TaskRecord:
 
 
 @dataclass
+class SessionRecord:
+    """A Claude Code session that may span multiple tasks."""
+
+    session_id: str
+    project_name: str
+    started_at: datetime = field(default_factory=datetime.now)
+    ended_at: datetime | None = None
+    task_ids: list[str] = field(default_factory=list)
+    total_cost_usd: float = 0.0
+    status: str = "active"
+
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "project_name": self.project_name,
+            "started_at": self.started_at.isoformat(),
+            "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+            "task_ids": self.task_ids,
+            "total_cost_usd": self.total_cost_usd,
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SessionRecord:
+        return cls(
+            session_id=data["session_id"],
+            project_name=data["project_name"],
+            started_at=datetime.fromisoformat(data["started_at"]),
+            ended_at=datetime.fromisoformat(data["ended_at"]) if data.get("ended_at") else None,
+            task_ids=data.get("task_ids", []),
+            total_cost_usd=data.get("total_cost_usd", 0.0),
+            status=data.get("status", "active"),
+        )
+
+
+@dataclass
 class Project:
     name: str
     path: str

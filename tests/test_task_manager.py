@@ -48,7 +48,9 @@ async def test_submit_task_success(MockSession, mock_pm):
     mock_session = AsyncMock()
     mock_session.project = mock_pm.get_project("proj-a")
     mock_session.task_state = TaskState.IDLE
-    mock_session.send_task = AsyncMock()
+    mock_session.send_task = AsyncMock(
+        return_value={"session_id": "sess-1", "cost": 0.01}
+    )
     MockSession.return_value = mock_session
 
     tm = TaskManager(project_manager=mock_pm)

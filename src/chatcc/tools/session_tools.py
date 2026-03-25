@@ -83,7 +83,7 @@ def register_session_tools(agent: Agent) -> None:
 
     @agent.tool
     async def new_session(ctx: RunContext[Any], project: str = "") -> str:
-        """为项目创建新的 Claude Code 会话 (断开旧会话)"""
+        """为项目创建新的 Claude Code 会话 (断开旧会话，记录关闭)"""
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm or not pm:
@@ -97,10 +97,65 @@ def register_session_tools(agent: Agent) -> None:
         if not session:
             return f"错误: 项目 '{proj_name}' 不存在"
 
+        old_sid = session.active_session_id
+        tm.close_session(proj_name)
         await session.disconnect()
         session.active_session_id = None
         session.task_state = TaskState.IDLE
-        return f"项目 '{proj_name}' 的 Claude Code 会话已重置"
+
+        msg = f"项目 '{proj_name}' 的 Claude Code 会话已重置"
+        if old_sid:
+            msg += f" (已关闭会话 {old_sid[:8]}…)"
+        return msg
+
+    @agent.tool
+    def get_session_info(ctx: RunContext[Any], project: str = "", count: int = 5) -> str:
+        """查看项目的 Claude Code 会话历史。显示当前活跃会话及最近 N 个已关闭会话。"""
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        session_log = tm.get_session_log(proj_name)
+        if not session_log:
+            return f"错误: 项目 '{proj_name}' 不存在"
+
+        lines: list[str] = [f"[{proj_name}] 会话历史:"]
+
+        active = session_log.active()
+        if active:
+            lines.append(
+                f"  🟢 活跃: {active.session_id[:8]}… "
+                f"| 任务数: {len(active.task_ids)} "
+                f"| 花费: ${active.total_cost_usd:.4f} "
+                f"| 开始: {active.started_at:%Y-%m-%d %H:%M}"
+            )
+        else:
+            lines.append("  无活跃会话")
+
+        records = session_log.latest(count)
+        closed = [r for r in records if r.status == "closed"]
+        if closed:
+            lines.append(f"最近 {len(closed)} 个已关闭会话:")
+            for r in reversed(closed):
+                duration = ""
+                if r.ended_at and r.started_at:
+                    delta = r.ended_at - r.started_at
+                    minutes = int(delta.total_seconds() / 60)
+                    duration = f" | 时长: {minutes}m"
+                lines.append(
+                    f"  ⚪ {r.session_id[:8]}… "
+                    f"| 任务数: {len(r.task_ids)} "
+                    f"| 花费: ${r.total_cost_usd:.4f}{duration}"
+                )
+        elif not active:
+            lines.append("暂无会话记录")
+
+        return "\n".join(lines)
 
 
 def _resolve_project_name(pm: Any, project: str) -> str | None:

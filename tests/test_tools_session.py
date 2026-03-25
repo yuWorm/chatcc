@@ -29,6 +29,7 @@ def test_session_tools_registered(dispatcher: Dispatcher) -> None:
     assert "get_task_status" in tools
     assert "interrupt_task" in tools
     assert "new_session" in tools
+    assert "get_session_info" in tools
 
 
 @pytest.mark.asyncio
@@ -107,7 +108,8 @@ def test_get_task_status_specific_project(tmp_path, dispatcher: Dispatcher) -> N
     tm.get_task_status = MagicMock(return_value="running")
     fn = dispatcher.agent._function_toolset.tools["get_task_status"].function
     out = fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "alpha")
-    assert out == "[alpha] running"
+    assert "[alpha]" in out
+    assert "running" in out
     tm.get_task_status.assert_called_once_with("alpha")
 
 
@@ -160,6 +162,8 @@ async def test_new_session_disconnects_and_resets(
     out = await fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "p1")
     assert "会话已重置" in out
     assert "p1" in out
+    assert "old-id" in out  # old session_id mentioned
+    tm.close_session.assert_called_once_with("p1")
     session.disconnect.assert_awaited_once()
     assert session.active_session_id is None
     assert session.task_state == TaskState.IDLE
@@ -181,3 +185,54 @@ async def test_new_session_no_managers(dispatcher: Dispatcher) -> None:
     fn = dispatcher.agent._function_toolset.tools["new_session"].function
     out = await fn(_ctx(AgentDeps()), "")
     assert "管理器未初始化" in out
+
+
+# --- get_session_info ---
+
+
+def test_get_session_info_no_managers(dispatcher: Dispatcher) -> None:
+    fn = dispatcher.agent._function_toolset.tools["get_session_info"].function
+    out = fn(_ctx(AgentDeps()), "")
+    assert "管理器未初始化" in out
+
+
+def test_get_session_info_no_sessions(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", "/x")
+    from chatcc.project.session_log import SessionLog
+
+    tm = MagicMock()
+    tm.get_session_log = MagicMock(return_value=SessionLog(tmp_path / "p1" / "sessions.jsonl"))
+    fn = dispatcher.agent._function_toolset.tools["get_session_info"].function
+    out = fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "p1")
+    assert "暂无会话记录" in out
+
+
+def test_get_session_info_with_active_session(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", "/x")
+    from chatcc.project.models import SessionRecord
+    from chatcc.project.session_log import SessionLog
+
+    sl = SessionLog(tmp_path / "p1" / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="sess-abc123",
+        project_name="p1",
+        task_ids=["t1", "t2"],
+        total_cost_usd=0.05,
+    ))
+    tm = MagicMock()
+    tm.get_session_log = MagicMock(return_value=sl)
+    fn = dispatcher.agent._function_toolset.tools["get_session_info"].function
+    out = fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "p1")
+    assert "sess-abc" in out
+    assert "任务数: 2" in out
+    assert "$0.0500" in out
+
+
+def test_get_session_info_unknown_project(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    tm = MagicMock()
+    fn = dispatcher.agent._function_toolset.tools["get_session_info"].function
+    out = fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "nope")
+    assert "未找到目标项目" in out

@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from chatcc.claude.session import ProjectSession, TaskState
-from chatcc.project.models import TaskRecord
+from chatcc.project.models import SessionRecord, TaskRecord
+from chatcc.project.session_log import SessionLog
 from chatcc.project.task_log import TaskLog
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class TaskManager:
         self._sessions: dict[str, ProjectSession] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_logs: dict[str, TaskLog] = {}
+        self._session_logs: dict[str, SessionLog] = {}
 
     def get_session(self, project_name: str) -> ProjectSession | None:
         """Get existing session for a project, or create one if the project exists"""
@@ -55,6 +57,51 @@ class TaskManager:
         log = TaskLog(data_dir / "tasks.jsonl")
         self._task_logs[project_name] = log
         return log
+
+    def get_session_log(self, project_name: str) -> SessionLog | None:
+        if project_name in self._session_logs:
+            return self._session_logs[project_name]
+        data_dir = self._project_manager.project_dir(project_name)
+        if not data_dir:
+            return None
+        log = SessionLog(data_dir / "sessions.jsonl")
+        self._session_logs[project_name] = log
+        return log
+
+    def _update_session(self, project_name: str, record: TaskRecord) -> None:
+        """Create or update a SessionRecord after a task completes."""
+        if not record.session_id:
+            return
+        session_log = self.get_session_log(project_name)
+        if not session_log:
+            return
+        existing = session_log.get(record.session_id)
+        if existing:
+            if record.id not in existing.task_ids:
+                existing.task_ids.append(record.id)
+            existing.total_cost_usd += record.cost_usd
+            session_log.append(existing)
+        else:
+            sr = SessionRecord(
+                session_id=record.session_id,
+                project_name=project_name,
+                task_ids=[record.id],
+                total_cost_usd=record.cost_usd,
+            )
+            session_log.append(sr)
+
+    def close_session(self, project_name: str) -> bool:
+        """Mark the active session for a project as closed. Returns True if closed."""
+        session_log = self.get_session_log(project_name)
+        if not session_log:
+            return False
+        active = session_log.active()
+        if not active:
+            return False
+        active.status = "closed"
+        active.ended_at = datetime.now()
+        session_log.append(active)
+        return True
 
     async def submit_task(self, project_name: str, prompt: str) -> str:
         """Submit a dev task to a project. Returns status message.
@@ -103,6 +150,7 @@ class TaskManager:
             task_log = self.get_task_log(project_name)
             if task_log:
                 task_log.append(record)
+            self._update_session(project_name, record)
             session.project.current_task = None
 
     async def _notify(self, project_name: str, message: str) -> None:
@@ -144,6 +192,8 @@ class TaskManager:
             t.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        for name in list(self._sessions):
+            self.close_session(name)
         for session in self._sessions.values():
             await session.disconnect()
         self._sessions.clear()
