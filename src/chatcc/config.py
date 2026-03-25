@@ -36,6 +36,7 @@ class ChannelConfig:
     type: str = "cli"
     telegram: dict[str, Any] = field(default_factory=dict)
     feishu: dict[str, Any] = field(default_factory=dict)
+    wechat: dict[str, Any] = field(default_factory=dict)
     discord: dict[str, Any] = field(default_factory=dict)
 
 
@@ -102,6 +103,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             type=ch.get("type", "cli"),
             telegram=ch.get("telegram", {}),
             feishu=ch.get("feishu", {}),
+            wechat=ch.get("wechat", {}),
             discord=ch.get("discord", {}),
         )
 

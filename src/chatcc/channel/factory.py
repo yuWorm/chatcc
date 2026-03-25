@@ -10,11 +10,13 @@ CHANNEL_REGISTRY: dict[str, tuple[str, str]] = {
     "cli": ("chatcc.channel.cli", "CliChannel"),
     "telegram": ("chatcc.channel.telegram", "TelegramChannel"),
     "feishu": ("chatcc.channel.feishu", "FeishuChannel"),
+    "wechat": ("chatcc.channel.wechatbot", "WeChatChannel"),
 }
 
 CHANNEL_LABELS: list[tuple[str, str]] = [
     ("telegram", "Telegram"),
     ("feishu", "飞书 (Feishu)"),
+    ("wechat", "微信 (WeChat)"),
     ("cli", "CLI (终端调试)"),
 ]
 

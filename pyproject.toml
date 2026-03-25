@@ -9,6 +9,8 @@ dependencies = [
     "pyyaml",
     "python-telegram-bot",
     "lark-oapi",
+    "aiohttp",
+    "cryptography",
     "click",
     "loguru",
 ]
