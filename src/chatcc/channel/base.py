@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from chatcc.channel.message import InboundMessage, OutboundMessage, RichMessage
+
+if TYPE_CHECKING:
+    from chatcc.setup.ui import SetupUI
 
 
 class MessageChannel(ABC):
@@ -29,9 +32,13 @@ class MessageChannel(ABC):
     def on_message(self, callback: Callable[[InboundMessage], Awaitable[None]]) -> None:
         """注册消息回调"""
 
-    def register_auth_commands(self, cli_group: Any) -> None:
-        """注册渠道认证相关的 CLI 子命令 (可选)"""
-        pass
+    @staticmethod
+    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+        """交互式凭证收集。返回写入 config.yaml 的渠道配置字典。
+
+        子类应覆写此方法。未覆写的渠道 (如 CLI) 无需配置。
+        """
+        return {}
 
     @abstractmethod
     def is_authenticated(self) -> bool:

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
@@ -24,10 +24,31 @@ from chatcc.channel.message import (
     TextElement,
 )
 
+if TYPE_CHECKING:
+    from chatcc.setup.ui import SetupUI
+
 logger = logging.getLogger("chatcc.channel.feishu")
 
 
 class FeishuChannel(MessageChannel):
+
+    @staticmethod
+    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+        ui.echo("=== 飞书应用认证 ===")
+        app_id = ui.prompt("请输入 App ID")
+        app_secret = ui.prompt("请输入 App Secret", hide=True)
+
+        if not app_id or not app_secret:
+            raise ValueError("App ID 和 App Secret 不能为空")
+
+        allowed = ui.prompt("允许的用户 Open ID (逗号分隔, 留空允许所有)", default="")
+        allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
+
+        return {
+            "app_id": app_id,
+            "app_secret": app_secret,
+            "allowed_users": allowed_list,
+        }
 
     def __init__(self, config: dict[str, Any]):
         self._config = config

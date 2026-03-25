@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from telegram import (
     Bot,
@@ -30,11 +30,30 @@ from chatcc.channel.message import (
     TextElement,
 )
 
+if TYPE_CHECKING:
+    from chatcc.setup.ui import SetupUI
+
 logger = logging.getLogger("chatcc.channel.telegram")
 
 
 class TelegramChannel(MessageChannel):
     MAX_MESSAGE_LENGTH = 4096
+
+    @staticmethod
+    def interactive_setup(ui: SetupUI) -> dict[str, Any]:
+        ui.echo("=== Telegram Bot 认证 ===")
+        token = ui.prompt("请输入 Bot Token (从 @BotFather 获取)")
+
+        if not token or ":" not in token:
+            raise ValueError("Token 格式无效 (应为 数字:字母串)")
+
+        allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default="")
+        allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
+
+        return {
+            "token": token,
+            "allowed_users": allowed_list,
+        }
 
     def __init__(self, config: dict[str, Any]):
         self._config = config
