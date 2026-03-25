@@ -23,8 +23,14 @@ def test_dispatcher_agent_configured():
     assert dispatcher.agent._model is not None
     assert dispatcher.agent.deps_type is AgentDeps
     assert dispatcher._build_instructions in dispatcher.agent._instructions
-    tool_names = list(dispatcher.agent._function_toolset.tools.keys())
-    assert tool_names == []
+    tool_names = set(dispatcher.agent._function_toolset.tools.keys())
+    assert tool_names == {
+        "create_project",
+        "delete_project",
+        "get_project_info",
+        "list_projects",
+        "switch_project",
+    }
 
 
 def test_build_instructions_with_empty_deps():

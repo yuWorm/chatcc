@@ -6,6 +6,7 @@ from typing import Any
 from pydantic_ai import Agent, RunContext
 
 from chatcc.agent.prompt import build_system_prompt
+from chatcc.tools.project_tools import register_project_tools
 
 
 @dataclass
@@ -66,4 +67,4 @@ class Dispatcher:
         )
 
     def _register_tools(self) -> None:
-        pass
+        register_project_tools(self.agent)
