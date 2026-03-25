@@ -219,7 +219,7 @@ class Application:
         try:
             summary = await self.summary_manager.compress()
             if summary:
-                logger.info("History compressed: %s", summary[:100])
+                logger.info("History compressed: {}", summary[:100])
         except Exception:
             logger.exception("Failed to compress history")
 

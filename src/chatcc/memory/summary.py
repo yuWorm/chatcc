@@ -58,7 +58,7 @@ class SummaryManager:
             f"会话摘要 ({len(removed)} 条消息): {summary}"
         )
 
-        logger.info("Compressed %s messages into summary", len(removed))
+        logger.info("Compressed {} messages into summary", len(removed))
         return summary
 
     @staticmethod

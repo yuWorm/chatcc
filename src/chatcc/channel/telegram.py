@@ -207,10 +207,10 @@ class TelegramChannel(MessageChannel):
         user = update.message.from_user
         user_id = str(user.id)
         username = user.username
-        logger.info("收到文本消息: user=%s (@%s), chat=%s, text=%s",
+        logger.info("收到文本消息: user={} (@{}), chat={}, text={}",
                      user_id, username, update.message.chat_id, update.message.text)
         if not self._is_user_allowed(user_id, username):
-            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
+            logger.warning("用户 {} (@{}) 不在允许列表中，已忽略", user_id, username)
             return
         if self._callback:
             msg = InboundMessage(
@@ -227,10 +227,10 @@ class TelegramChannel(MessageChannel):
         user = update.message.from_user
         user_id = str(user.id)
         username = user.username
-        logger.info("收到命令消息: user=%s (@%s), chat=%s, command=%s",
+        logger.info("收到命令消息: user={} (@{}), chat={}, command={}",
                      user_id, username, update.message.chat_id, update.message.text)
         if not self._is_user_allowed(user_id, username):
-            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
+            logger.warning("用户 {} (@{}) 不在允许列表中，已忽略", user_id, username)
             return
         if self._callback:
             msg = InboundMessage(
@@ -250,10 +250,10 @@ class TelegramChannel(MessageChannel):
 
         user_id = str(query.from_user.id)
         username = query.from_user.username
-        logger.info("收到回调按钮: user=%s (@%s), chat=%s, data=%s",
+        logger.info("收到回调按钮: user={} (@{}), chat={}, data={}",
                      user_id, username, query.message.chat_id, query.data)
         if not self._is_user_allowed(user_id, username):
-            logger.warning("用户 %s (@%s) 不在允许列表中，已忽略", user_id, username)
+            logger.warning("用户 {} (@{}) 不在允许列表中，已忽略", user_id, username)
             return
 
         if self._callback:
