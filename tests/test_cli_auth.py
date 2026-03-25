@@ -121,7 +121,7 @@ def test_init_custom_provider(runner: CliRunner, tmp_path) -> None:
             cli,
             ["init"],
             input="\n".join([
-                "3",                    # choose provider: custom
+                "5",                    # choose provider: custom (5th option)
                 "my-llm",              # provider name
                 "https://api.example.com/v1",  # base_url
                 "my-model",            # model

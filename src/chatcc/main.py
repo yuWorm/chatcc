@@ -84,13 +84,17 @@ def _run_channel_setup(
 
 PROVIDER_OPTIONS: list[tuple[str, str]] = [
     ("anthropic", "Anthropic (Claude)"),
-    ("openai", "OpenAI (GPT)"),
+    ("openai", "OpenAI Chat Completions (GPT)"),
+    ("openai-responses", "OpenAI Responses API (GPT)"),
+    ("google", "Google Gemini"),
     ("custom", "自定义 (OpenAI 兼容 API)"),
 ]
 
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4o",
+    "openai-responses": "gpt-4o",
+    "google": "gemini-2.5-pro",
 }
 
 

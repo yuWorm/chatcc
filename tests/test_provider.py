@@ -4,6 +4,8 @@ from chatcc.config import ProviderConfig
 
 
 def test_build_official_anthropic():
+    from pydantic_ai.models.anthropic import AnthropicModel
+
     providers = {
         "anthropic": ProviderConfig(
             name="Anthropic",
@@ -12,10 +14,12 @@ def test_build_official_anthropic():
         )
     }
     model = build_model_from_config(providers, "anthropic")
-    assert model == "anthropic:claude-haiku-4-20250414"
+    assert isinstance(model, AnthropicModel)
 
 
 def test_build_official_openai():
+    from pydantic_ai.models.openai import OpenAIChatModel
+
     providers = {
         "openai": ProviderConfig(
             name="OpenAI",
@@ -24,10 +28,40 @@ def test_build_official_openai():
         )
     }
     model = build_model_from_config(providers, "openai")
-    assert model == "openai:gpt-4o-mini"
+    assert isinstance(model, OpenAIChatModel)
+
+
+def test_build_openai_responses():
+    from pydantic_ai.models.openai import OpenAIResponsesModel
+
+    providers = {
+        "openai-responses": ProviderConfig(
+            name="OpenAI Responses",
+            model="gpt-4o",
+            api_key="sk-test",
+        )
+    }
+    model = build_model_from_config(providers, "openai-responses")
+    assert isinstance(model, OpenAIResponsesModel)
+
+
+def test_build_google():
+    from pydantic_ai.models.google import GoogleModel
+
+    providers = {
+        "google": ProviderConfig(
+            name="Google",
+            model="gemini-2.5-pro",
+            api_key="test-key",
+        )
+    }
+    model = build_model_from_config(providers, "google")
+    assert isinstance(model, GoogleModel)
 
 
 def test_build_custom_provider():
+    from pydantic_ai.models.openai import OpenAIChatModel
+
     providers = {
         "custom": ProviderConfig(
             name="Custom",
@@ -37,7 +71,7 @@ def test_build_custom_provider():
         )
     }
     model = build_model_from_config(providers, "custom")
-    assert hasattr(model, "model_name")
+    assert isinstance(model, OpenAIChatModel)
 
 
 def test_unknown_provider():
