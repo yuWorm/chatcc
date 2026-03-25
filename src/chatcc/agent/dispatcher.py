@@ -9,6 +9,7 @@ from chatcc.agent.prompt import build_system_prompt
 from chatcc.tools.command_tools import register_command_tools
 from chatcc.tools.project_tools import register_project_tools
 from chatcc.tools.service_tools import register_service_tools
+from chatcc.tools.session_tools import register_session_tools
 
 
 @dataclass
@@ -72,3 +73,4 @@ class Dispatcher:
         register_project_tools(self.agent)
         register_command_tools(self.agent)
         register_service_tools(self.agent)
+        register_session_tools(self.agent)
