@@ -40,6 +40,24 @@ def _truncate(text: str, limit: int = MAX_TEXT_PER_MSG) -> str:
 
 def register_session_tools(agent: Agent) -> None:
     @agent.tool
+    def set_conversation_project(ctx: RunContext[Any], project: str) -> str:
+        """标记当前对话涉及的项目。
+
+        当用户的消息涉及某个项目时**必须**调用此工具，以便系统正确记录对话上下文归属。
+        只有与项目完全无关的日常闲聊才无需调用。
+        """
+        pm = ctx.deps.project_manager
+        if not pm:
+            return "错误: 项目管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return f"错误: 未找到项目 '{project}'"
+
+        ctx.deps.context_project = proj_name
+        return f"已标记当前对话关联项目: {proj_name}"
+
+    @agent.tool
     def get_project_history(
         ctx: RunContext[Any],
         project: str,

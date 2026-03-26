@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from chatcc.agent.prompt import build_system_prompt
@@ -13,16 +12,6 @@ from chatcc.tools.install_tools import register_install_tools
 from chatcc.tools.project_tools import register_project_tools
 from chatcc.tools.service_tools import register_service_tools
 from chatcc.tools.session_tools import register_session_tools
-
-
-class AgentResponse(BaseModel):
-    """Agent 结构化回复，携带项目上下文标记"""
-
-    content: str = Field(description="回复给用户的文本内容")
-    project: str | None = Field(
-        default=None,
-        description="本次对话涉及的项目名称，无关项目时为 null",
-    )
 
 
 @dataclass
@@ -38,6 +27,7 @@ class AgentDeps:
     service_manager: Any = None  # will be chatcc.service.manager.ServiceManager
     send_fn: Any = None  # Callable[[OutboundMessage], Awaitable[None]]
     chat_id: str = ""  # current message source chat_id
+    context_project: str | None = None  # set by set_conversation_project tool
 
 
 class Dispatcher:
@@ -55,7 +45,6 @@ class Dispatcher:
         self.agent = Agent(
             model_id,
             deps_type=AgentDeps,
-            result_type=AgentResponse,
             instructions=self._build_instructions,
             retries=3,
         )

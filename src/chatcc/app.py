@@ -259,17 +259,17 @@ class Application:
 
         try:
             run_result = await self.dispatcher.agent.run(agent_input, deps=deps)
-            response = run_result.output
+            response_text = run_result.output
 
-            project = response.project or cmd_project
+            project = deps.context_project or cmd_project
             self.history.add_message("user", message.content, project=project)
-            self.history.add_message("assistant", response.content, project=project)
+            self.history.add_message("assistant", response_text, project=project)
 
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response.content)
+                OutboundMessage(chat_id=message.chat_id, content=response_text)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
@@ -312,17 +312,17 @@ class Application:
 
         try:
             result = await self.dispatcher.agent.run(message.content, deps=deps)
-            response = result.output
+            response_text = result.output
 
-            project = response.project
+            project = deps.context_project
             self.history.add_message("user", message.content, project=project)
-            self.history.add_message("assistant", response.content, project=project)
+            self.history.add_message("assistant", response_text, project=project)
 
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response.content)
+                OutboundMessage(chat_id=message.chat_id, content=response_text)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
