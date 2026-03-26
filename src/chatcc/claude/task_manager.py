@@ -110,8 +110,9 @@ class TaskManager:
         """Submit a dev task to a project. Returns status message.
         Same project serialized (rejects if RUNNING), cross-project parallel.
 
-        Phase 1 (awaited): connect + send query — failures return error directly.
-        Phase 2 (background): consume response stream — fires as asyncio.Task.
+        The entire SDK lifecycle (connect → query → consume → disconnect) runs
+        inside a single ``asyncio.Task`` so that the anyio cancel scope created
+        by ``connect()`` is always exited in the same task it was entered in.
         """
         session = self.get_session(project_name)
         if not session:
@@ -122,38 +123,28 @@ class TaskManager:
 
         record = TaskRecord(prompt=prompt, session_id=session.active_session_id)
         session.project.current_task = record
+        session.task_state = TaskState.RUNNING
 
-        # Phase 1: connect + send query (awaited, errors return immediately)
-        try:
-            client = await session.ensure_connected()
-            session.task_state = TaskState.RUNNING
-            await client.query(prompt)
-        except Exception as exc:
-            session.task_state = TaskState.FAILED
-            record.status = "failed"
-            record.error = str(exc)[:500]
-            record.completed_at = datetime.now()
-            session.project.current_task = None
-            task_log = self.get_task_log(project_name)
-            if task_log:
-                task_log.append(record)
-            await session.disconnect()
-            return f"错误: 任务启动失败 — {exc}"
-
-        # Phase 2: consume response stream (background)
         task = asyncio.create_task(
-            self._consume_task(session, record)
+            self._run_task(session, record, prompt)
         )
         self._running_tasks[project_name] = task
         return f"任务已提交到项目 '{project_name}' (#{record.id})"
 
-    async def _consume_task(
-        self, session: ProjectSession, record: TaskRecord
+    async def _run_task(
+        self, session: ProjectSession, record: TaskRecord, prompt: str
     ) -> None:
-        """Phase 2: consume the response stream after query was sent."""
+        """Run the full SDK lifecycle in a single asyncio Task.
+
+        connect, query, consume, and disconnect all happen here so that
+        anyio cancel scopes are entered and exited in the same task.
+        """
         project_name = session.project.name
         try:
+            client = await session.ensure_connected()
+            await client.query(prompt)
             result = await session.consume_response()
+
             session.task_state = TaskState.COMPLETED
             cost = result.get("cost", 0.0) if result else 0.0
             record.status = "completed"
@@ -179,7 +170,10 @@ class TaskManager:
                 task_log.append(record)
             self._update_session(project_name, record)
             session.project.current_task = None
-            await session.disconnect()
+            try:
+                await session.disconnect()
+            except RuntimeError:
+                pass
 
     async def _notify(self, project_name: str, message: str) -> None:
         if self._on_notify:

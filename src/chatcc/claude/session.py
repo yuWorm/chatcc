@@ -13,6 +13,7 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
 )
+from claude_agent_sdk.types import HookContext, HookInput, SyncHookJSONOutput
 
 from chatcc.project.models import Project
 
@@ -142,14 +143,20 @@ class ProjectSession:
             await self.client.disconnect()
             self.client = None
 
-    async def _notification_hook(self, context: Any) -> None:
+    async def _notification_hook(
+        self, input: HookInput, tool_use_id: str | None, context: HookContext
+    ) -> SyncHookJSONOutput:
         if self._on_notification:
-            title = getattr(context, "title", "")
-            body = getattr(context, "body", "")
+            title = input.get("title", "")  # type: ignore[union-attr]
+            body = input.get("message", "")  # type: ignore[union-attr]
             await self._on_notification(self.project.name, f"{title}: {body}")
+        return SyncHookJSONOutput()
 
-    async def _stop_hook(self, context: Any) -> None:
+    async def _stop_hook(
+        self, input: HookInput, tool_use_id: str | None, context: HookContext
+    ) -> SyncHookJSONOutput:
         self.task_state = TaskState.COMPLETED
+        return SyncHookJSONOutput()
 
     async def _permission_handler(
         self,
