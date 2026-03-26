@@ -218,7 +218,10 @@ def register_session_tools(agent: Agent) -> None:
 
         old_sid = session.active_session_id
         tm.close_session(proj_name)
-        await session.disconnect()
+        try:
+            await session.disconnect()
+        except RuntimeError:
+            pass
         session.active_session_id = None
         session.task_state = TaskState.IDLE
 

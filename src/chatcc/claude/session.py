@@ -78,8 +78,16 @@ class ProjectSession:
 
     async def ensure_connected(self) -> ClaudeSDKClient:
         if not self.client:
-            self.client = ClaudeSDKClient(options=self._build_options())
-            await self.client.connect()
+            client = ClaudeSDKClient(options=self._build_options())
+            try:
+                await client.connect()
+            except Exception:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+                raise
+            self.client = client
         return self.client
 
     async def consume_response(self) -> dict[str, Any] | None:
@@ -140,9 +148,10 @@ class ProjectSession:
             await self.client.interrupt()
 
     async def disconnect(self) -> None:
-        if self.client:
-            await self.client.disconnect()
-            self.client = None
+        client = self.client
+        self.client = None
+        if client:
+            await client.disconnect()
 
     async def _notification_hook(
         self, input: HookInput, tool_use_id: str | None, context: HookContext

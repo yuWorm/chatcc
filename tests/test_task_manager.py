@@ -302,3 +302,85 @@ def test_get_session_cached_skips_restore(mock_pm):
     same_session = tm.get_session("proj-a")
     assert same_session is session
     assert same_session.active_session_id is None
+
+
+# ── ProcessError recovery ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_process_error_retries_with_fresh_session(MockSession, mock_pm):
+    """When a resumed session hits a ProcessError (dead Claude Code process),
+    _run_task_item should disconnect, clear the session ID, and retry."""
+    mock_client_bad = AsyncMock()
+    mock_client_bad.query = AsyncMock(
+        side_effect=RuntimeError("Cannot write to terminated process (exit code: 1)")
+    )
+    mock_client_good = AsyncMock()
+    mock_client_good.query = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = "old-sess"
+    mock_session.client = None
+    mock_session.disconnect = AsyncMock()
+
+    call_count = 0
+
+    async def fake_ensure_connected():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return mock_client_bad
+        return mock_client_good
+
+    mock_session.ensure_connected = fake_ensure_connected
+    mock_session.consume_response = AsyncMock(
+        return_value={"session_id": "new-sess", "cost": 0.02}
+    )
+    MockSession.return_value = mock_session
+
+    notified: list[str] = []
+
+    async def on_notify(_proj: str, msg: str) -> None:
+        notified.append(msg)
+
+    tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
+    await tm.submit_task("proj-a", "do something")
+    await asyncio.sleep(0.3)
+
+    assert mock_session.task_state == TaskState.COMPLETED
+    assert any("重试成功" in n for n in notified)
+    assert mock_session.disconnect.await_count >= 1
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_process_error_retry_also_fails(MockSession, mock_pm):
+    """If the retry after process error also fails, the task is marked failed."""
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock(
+        side_effect=RuntimeError("Cannot write to terminated process (exit code: 1)")
+    )
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = "old-sess"
+    mock_session.client = None
+    mock_session.disconnect = AsyncMock()
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    MockSession.return_value = mock_session
+
+    notified: list[str] = []
+
+    async def on_notify(_proj: str, msg: str) -> None:
+        notified.append(msg)
+
+    tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
+    await tm.submit_task("proj-a", "do something")
+    await asyncio.sleep(0.3)
+
+    assert mock_session.task_state == TaskState.FAILED
+    assert any("重试失败" in n for n in notified)

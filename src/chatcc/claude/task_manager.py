@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from chatcc.project.manager import ProjectManager
 
 _CONTEXT_TOO_LONG_MARKERS = ("context_length", "too long", "max_tokens", "context window")
+_PROCESS_ERROR_MARKERS = ("terminated process", "Cannot write", "process failed", "exit code")
 
 
 class TaskManager:
@@ -292,7 +293,7 @@ class TaskManager:
                     if session:
                         try:
                             await session.disconnect()
-                        except RuntimeError:
+                        except Exception:
                             pass
                     continue
 
@@ -355,6 +356,9 @@ class TaskManager:
             if self._is_context_too_long(exc):
                 await self._handle_context_too_long(project_name, session, queued, exc)
                 return
+            if self._is_process_error(exc):
+                await self._handle_process_error(project_name, session, queued, exc)
+                return
             session.task_state = TaskState.FAILED
             record.status = "failed"
             record.error = str(exc)[:500]
@@ -385,11 +389,22 @@ class TaskManager:
         self.close_session(project_name)
         try:
             await session.disconnect()
-        except RuntimeError:
+        except Exception:
             pass
         session.active_session_id = None
         session.task_state = TaskState.IDLE
         await self._notify(project_name, "🔄 会话已自动轮转，开启新对话")
+
+    @staticmethod
+    def _is_process_error(exc: Exception) -> bool:
+        try:
+            from claude_agent_sdk import ProcessError
+            if isinstance(exc, ProcessError):
+                return True
+        except ImportError:
+            pass
+        msg = str(exc).lower()
+        return any(marker in msg for marker in _PROCESS_ERROR_MARKERS)
 
     @staticmethod
     def _is_context_too_long(exc: Exception) -> bool:
@@ -425,6 +440,53 @@ class TaskManager:
             record.error = f"重试失败: {retry_exc}"[:500]
             await self._notify(project_name, f"❌ 重试失败: {retry_exc}")
 
+    async def _handle_process_error(
+        self,
+        project_name: str,
+        session: ProjectSession,
+        queued: QueuedTask,
+        original_exc: Exception,
+    ) -> None:
+        """Handle a dead Claude Code process by resetting the connection and retrying."""
+        record = queued.record
+        had_resume = session.active_session_id is not None
+        logger.warning(
+            "Process error for '{}' (resume={}): {}",
+            project_name,
+            session.active_session_id and session.active_session_id[:8],
+            original_exc,
+        )
+        await self._notify(
+            project_name,
+            "🔄 Claude Code 进程异常，正在重置连接重试...",
+        )
+
+        self.close_session(project_name)
+        try:
+            await session.disconnect()
+        except Exception:
+            pass
+        if had_resume:
+            session.active_session_id = None
+
+        try:
+            session.task_state = TaskState.RUNNING
+            client = await session.ensure_connected()
+            await client.query(queued.prompt)
+            result = await session.consume_response()
+
+            session.task_state = TaskState.COMPLETED
+            cost = result.get("cost", 0.0) if result else 0.0
+            record.status = "completed"
+            record.cost_usd = cost
+            record.session_id = result.get("session_id") if result else record.session_id
+            await self._notify(project_name, f"✅ 重试成功 (${cost:.4f})")
+        except Exception as retry_exc:
+            session.task_state = TaskState.FAILED
+            record.status = "failed"
+            record.error = f"进程异常重试失败: {retry_exc}"[:500]
+            await self._notify(project_name, f"❌ 重试失败: {retry_exc}")
+
     # ── Status queries ─────────────────────────────────────────────
 
     def get_task_status(self, project_name: str) -> str:
@@ -455,7 +517,7 @@ class TaskManager:
         for session in self._sessions.values():
             try:
                 await session.disconnect()
-            except RuntimeError:
+            except Exception:
                 pass
 
         self._sessions.clear()
