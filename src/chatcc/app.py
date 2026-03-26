@@ -238,7 +238,7 @@ class Application:
             return
 
         self._last_chat_id = message.chat_id
-        await self.channel.send_typing(message.chat_id)
+        await self.channel.send_typing(message.chat_id, message.message_id)
 
         # Augmented 命令可能自带 project（如 /task test_wap xxx）
         cmd_project = result.parsed_args.get("project") or None
@@ -296,7 +296,7 @@ class Application:
             return
 
         self._last_chat_id = message.chat_id
-        await self.channel.send_typing(message.chat_id)
+        await self.channel.send_typing(message.chat_id, message.message_id)
 
         deps = AgentDeps(
             project_manager=self.project_manager,

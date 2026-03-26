@@ -9,6 +9,7 @@ class InboundMessage:
     sender_id: str
     content: str
     chat_id: str
+    message_id: str | None = None
     media: list[str] | None = None
     raw: Any = None
 

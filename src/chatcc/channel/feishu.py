@@ -6,10 +6,15 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import lark_oapi as lark
+import lark_oapi.ws.client as _lark_ws_mod
+from lark_oapi.ws.exception import ClientException as LarkClientException
 from lark_oapi.api.im.v1 import (
+    CreateMessageReactionRequest,
+    CreateMessageReactionRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
 )
+from lark_oapi.api.im.v1.model.emoji import Emoji
 
 from chatcc.channel.base import MessageChannel
 from chatcc.channel.message import (
@@ -94,11 +99,26 @@ class FeishuChannel(MessageChannel):
             log_level=lark.LogLevel.INFO,
         )
 
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, self._ws_client.start)
+        _lark_ws_mod.loop = asyncio.get_running_loop()
+
+        try:
+            await self._ws_client._connect()
+        except LarkClientException:
+            raise
+        except Exception as e:
+            logger.error(f"Feishu WS connect failed: {e}")
+            await self._ws_client._disconnect()
+            if self._ws_client._auto_reconnect:
+                asyncio.create_task(self._ws_client._reconnect())
+            else:
+                raise
+
+        asyncio.create_task(self._ws_client._ping_loop())
         logger.info("Feishu channel started (WebSocket)")
 
     async def stop(self) -> None:
+        if self._ws_client:
+            await self._ws_client._disconnect()
         logger.info("Feishu channel stopped")
 
     async def send(self, message: OutboundMessage) -> None:
@@ -120,6 +140,7 @@ class FeishuChannel(MessageChannel):
             .build()
         )
 
+        logger.info("[Feishu] send to={} type={}", payload["receive_id"], payload["msg_type"])
         response = await self._api_client.im.v1.message.acreate(request)
         if not response.success():
             logger.error(
@@ -193,6 +214,28 @@ class FeishuChannel(MessageChannel):
             "card": {"header": header, "elements": elements},
         }
 
+    async def send_typing(self, chat_id: str, message_id: str | None = None) -> None:
+        if not self._api_client or not message_id:
+            return
+        try:
+            request = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    CreateMessageReactionRequestBody.builder()
+                    .reaction_type(Emoji.builder().emoji_type("DONE").build())
+                    .build()
+                )
+                .build()
+            )
+            response = await self._api_client.im.v1.message_reaction.acreate(request)
+            if not response.success():
+                logger.warning(
+                    "[Feishu] add reaction failed: {} - {}", response.code, response.msg
+                )
+        except Exception:
+            logger.debug("[Feishu] add reaction failed", exc_info=True)
+
     def on_message(
         self, callback: Callable[[InboundMessage], Awaitable[None]]
     ) -> None:
@@ -213,8 +256,10 @@ class FeishuChannel(MessageChannel):
             }
         return {
             "receive_id": chat_id,
-            "msg_type": "text",
-            "content": {"text": content},
+            "msg_type": "interactive",
+            "content": {
+                "elements": [{"tag": "markdown", "content": content}],
+            },
         }
 
     def _is_user_allowed(self, open_id: str) -> bool:
@@ -233,12 +278,14 @@ class FeishuChannel(MessageChannel):
 
             content_json = json.loads(message.content)
             text = content_json.get("text", "")
+            logger.info("[Feishu] recv from={} chat={} text={!r}", sender, message.chat_id, text)
 
             if self._callback:
                 msg = InboundMessage(
                     sender_id=sender,
                     content=text,
                     chat_id=message.chat_id,
+                    message_id=message.message_id,
                     raw=data,
                 )
                 loop = asyncio.get_event_loop()
@@ -254,6 +301,7 @@ class FeishuChannel(MessageChannel):
             command = value.get("command", "")
             open_id = data.event.operator.open_id
             chat_id = data.event.context.open_chat_id
+            logger.info("[Feishu] card action from={} chat={} cmd={!r}", open_id, chat_id, command)
 
             if not command or not self._is_user_allowed(open_id):
                 return None

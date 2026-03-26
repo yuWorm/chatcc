@@ -176,7 +176,10 @@ class TelegramChannel(MessageChannel):
 
     async def send_typing(self, chat_id: str) -> None:
         if self._bot:
-            await self._bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            try:
+                await self._bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                logger.debug("send_typing timed out for chat_id={}", chat_id)
 
     async def register_commands(self, commands: list[CommandSpec]) -> None:
         if not self._bot:
