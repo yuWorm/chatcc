@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from chatcc.claude.session import TaskState
 from chatcc.claude.task_manager import TaskManager
+from chatcc.project.models import SessionRecord
+from chatcc.project.session_log import SessionLog
 
 
 @pytest.fixture
-def mock_pm():
+def mock_pm(tmp_path):
     pm = MagicMock()
     project_a = MagicMock()
     project_a.name = "proj-a"
@@ -19,6 +22,15 @@ def mock_pm():
     project_b.name = "proj-b"
     project_b.path = "/tmp/proj-b"
     pm.get_project.side_effect = lambda name: {"proj-a": project_a, "proj-b": project_b}.get(name)
+
+    dir_a = tmp_path / "proj-a"
+    dir_a.mkdir()
+    dir_b = tmp_path / "proj-b"
+    dir_b.mkdir()
+    pm.project_dir.side_effect = lambda name: {
+        "proj-a": dir_a,
+        "proj-b": dir_b,
+    }.get(name)
     return pm
 
 
@@ -213,3 +225,80 @@ async def test_run_task_sets_failed_on_error(MockSession, mock_pm):
     await asyncio.sleep(0.15)
 
     assert mock_session.task_state == TaskState.FAILED
+
+
+# ── Session recovery on get_session ───────────────────────────────
+
+
+def test_get_session_restores_active_session_id(mock_pm):
+    """After a process restart, get_session should restore active_session_id
+    from sessions.jsonl so the SDK can resume the previous conversation."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="sess-from-last-run",
+        project_name="proj-a",
+        task_ids=["t1"],
+        total_cost_usd=0.01,
+        status="active",
+    ))
+
+    tm = TaskManager(project_manager=mock_pm)
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id == "sess-from-last-run"
+
+
+def test_get_session_does_not_restore_closed_session(mock_pm):
+    """Closed sessions should not be auto-restored."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="sess-old",
+        project_name="proj-a",
+        status="closed",
+    ))
+
+    tm = TaskManager(project_manager=mock_pm)
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id is None
+
+
+def test_get_session_no_session_log(mock_pm):
+    """When project has no session log, active_session_id stays None."""
+    mock_pm.project_dir.side_effect = lambda name: None
+
+    tm = TaskManager(project_manager=mock_pm)
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id is None
+
+
+def test_get_session_empty_session_log(mock_pm):
+    """Empty session log should not set active_session_id."""
+    tm = TaskManager(project_manager=mock_pm)
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id is None
+
+
+def test_get_session_cached_skips_restore(mock_pm):
+    """Once a session is cached, get_session should not re-read the log."""
+    data_dir = mock_pm.project_dir("proj-a")
+    tm = TaskManager(project_manager=mock_pm)
+
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id is None
+
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="sess-late",
+        project_name="proj-a",
+        status="active",
+    ))
+
+    same_session = tm.get_session("proj-a")
+    assert same_session is session
+    assert same_session.active_session_id is None

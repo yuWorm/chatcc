@@ -236,3 +236,103 @@ def test_get_session_info_unknown_project(tmp_path, dispatcher: Dispatcher) -> N
     fn = dispatcher.agent._function_toolset.tools["get_session_info"].function
     out = fn(_ctx(AgentDeps(project_manager=pm, task_manager=tm)), "nope")
     assert "未找到目标项目" in out
+
+
+# --- resume_session ---
+
+
+def test_resume_session_registered(dispatcher: Dispatcher) -> None:
+    tools = list(dispatcher.agent._function_toolset.tools.keys())
+    assert "resume_session" in tools
+    assert "list_claude_sessions" in tools
+
+
+@pytest.mark.asyncio
+async def test_resume_session_switches_session(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", str(tmp_path / "proj1"))
+    session = MagicMock()
+    session.disconnect = AsyncMock()
+    session.active_session_id = "old-sess"
+    session.task_state = TaskState.IDLE
+    tm = MagicMock()
+    tm.get_session = MagicMock(return_value=session)
+    fn = dispatcher.agent._function_toolset.tools["resume_session"].function
+    out = await fn(
+        _ctx(AgentDeps(project_manager=pm, task_manager=tm)),
+        "new-sess-id",
+        "p1",
+    )
+    assert "new-sess" in out
+    assert "old-sess" in out
+    assert session.active_session_id == "new-sess-id"
+    assert session.task_state == TaskState.IDLE
+    tm.close_session.assert_called_once_with("p1")
+    session.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resume_session_same_id(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", str(tmp_path / "proj1"))
+    session = MagicMock()
+    session.active_session_id = "same-id"
+    session.task_state = TaskState.IDLE
+    tm = MagicMock()
+    tm.get_session = MagicMock(return_value=session)
+    fn = dispatcher.agent._function_toolset.tools["resume_session"].function
+    out = await fn(
+        _ctx(AgentDeps(project_manager=pm, task_manager=tm)),
+        "same-id",
+        "p1",
+    )
+    assert "已在该会话中" in out
+
+
+@pytest.mark.asyncio
+async def test_resume_session_rejects_while_running(
+    tmp_path, dispatcher: Dispatcher
+) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", str(tmp_path / "proj1"))
+    session = MagicMock()
+    session.active_session_id = "old"
+    session.task_state = TaskState.RUNNING
+    tm = MagicMock()
+    tm.get_session = MagicMock(return_value=session)
+    fn = dispatcher.agent._function_toolset.tools["resume_session"].function
+    out = await fn(
+        _ctx(AgentDeps(project_manager=pm, task_manager=tm)),
+        "new-id",
+        "p1",
+    )
+    assert "正在执行" in out
+
+
+@pytest.mark.asyncio
+async def test_resume_session_no_managers(dispatcher: Dispatcher) -> None:
+    fn = dispatcher.agent._function_toolset.tools["resume_session"].function
+    out = await fn(_ctx(AgentDeps()), "sid", "")
+    assert "管理器未初始化" in out
+
+
+@pytest.mark.asyncio
+async def test_resume_session_from_none(tmp_path, dispatcher: Dispatcher) -> None:
+    """Resume when there was no previous session (active_session_id is None)."""
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("p1", str(tmp_path / "proj1"))
+    session = MagicMock()
+    session.disconnect = AsyncMock()
+    session.active_session_id = None
+    session.task_state = TaskState.IDLE
+    tm = MagicMock()
+    tm.get_session = MagicMock(return_value=session)
+    fn = dispatcher.agent._function_toolset.tools["resume_session"].function
+    out = await fn(
+        _ctx(AgentDeps(project_manager=pm, task_manager=tm)),
+        "target-sess",
+        "p1",
+    )
+    assert "target-s" in out
+    assert session.active_session_id == "target-sess"
+    tm.close_session.assert_not_called()

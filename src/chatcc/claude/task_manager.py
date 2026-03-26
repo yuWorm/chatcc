@@ -69,8 +69,29 @@ class TaskManager:
             approval_table=self._approval_table,
             dangerous_patterns=self._dangerous_patterns,
         )
+        self._restore_session_id(project_name, session)
         self._sessions[project_name] = session
         return session
+
+    def _restore_session_id(
+        self, project_name: str, session: ProjectSession
+    ) -> None:
+        """Try to restore active_session_id from the session log.
+
+        This allows the SDK ``resume`` parameter to reconnect to the
+        previous Claude Code session after a process restart.
+        """
+        session_log = self.get_session_log(project_name)
+        if not session_log:
+            return
+        active = session_log.active()
+        if active:
+            session.active_session_id = active.session_id
+            logger.info(
+                "Restored session {} for project '{}'",
+                active.session_id[:8],
+                project_name,
+            )
 
     def get_task_log(self, project_name: str) -> TaskLog | None:
         if project_name in self._task_logs:

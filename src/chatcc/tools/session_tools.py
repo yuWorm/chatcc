@@ -492,6 +492,109 @@ def register_session_tools(agent: Agent) -> None:
         return "\n".join(lines)
 
 
+    @agent.tool
+    def list_claude_sessions(
+        ctx: RunContext[Any],
+        project: str = "",
+        count: int = 10,
+    ) -> str:
+        """列出项目在 Claude Code 中的历史会话，供用户选择恢复。
+
+        返回按时间倒序排列的会话列表（最新在前），包含 session_id 和摘要。
+        用户选定后可用 resume_session 工具恢复。
+        """
+        from claude_agent_sdk import list_sessions
+
+        pm = ctx.deps.project_manager
+        if not pm:
+            return "错误: 项目管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        proj = pm.get_project(proj_name)
+        if not proj:
+            return f"错误: 项目 '{proj_name}' 不存在"
+
+        tm = ctx.deps.task_manager
+        current_sid = None
+        if tm:
+            session = tm.get_session(proj_name)
+            if session:
+                current_sid = session.active_session_id
+
+        try:
+            sessions = list_sessions(directory=proj.path, limit=count)
+        except Exception as e:
+            return f"错误: 获取会话列表失败 — {e}"
+
+        if not sessions:
+            return f"[{proj_name}] 未找到任何 Claude Code 会话"
+
+        lines: list[str] = [f"[{proj_name}] 共 {len(sessions)} 个会话:"]
+        for i, s in enumerate(sessions, 1):
+            marker = " 👈 当前" if (current_sid and s.session_id == current_sid) else ""
+            summary = s.summary or "(无摘要)"
+            if len(summary) > 80:
+                summary = summary[:80] + "…"
+            lines.append(
+                f"  {i}. {s.session_id[:12]}… | {summary}{marker}"
+            )
+
+        lines.append("\n使用 resume_session 工具 + session_id 可恢复指定会话")
+        return "\n".join(lines)
+
+    @agent.tool
+    async def resume_session(
+        ctx: RunContext[Any],
+        session_id: str,
+        project: str = "",
+    ) -> str:
+        """恢复指定的 Claude Code 历史会话。
+
+        将项目的 Claude Code 连接切换到指定的 session_id。
+        下次发送任务时会在该会话上下文中继续对话。
+        可通过 list_claude_sessions 工具查看可用会话。
+        """
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        session = tm.get_session(proj_name)
+        if not session:
+            return f"错误: 项目 '{proj_name}' 不存在"
+
+        if session.task_state == TaskState.RUNNING:
+            return "错误: 项目有任务正在执行，请先中断或等待完成"
+
+        old_sid = session.active_session_id
+        if old_sid == session_id:
+            return f"当前已在该会话中 ({session_id[:8]}…)"
+
+        if old_sid:
+            tm.close_session(proj_name)
+
+        try:
+            await session.disconnect()
+        except RuntimeError:
+            pass
+
+        session.active_session_id = session_id
+        session.task_state = TaskState.IDLE
+
+        msg = f"已切换到会话 {session_id[:8]}…"
+        if old_sid:
+            msg += f" (原会话 {old_sid[:8]}… 已关闭)"
+        msg += "\n下次发送任务将在此会话上下文中继续"
+        return msg
+
+
 def _resolve_project_name(pm: Any, project: str) -> str | None:
     if project:
         proj = pm.get_project(project)
