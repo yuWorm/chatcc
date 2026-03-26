@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-CHATCC_HOME = Path.home() / ".chatcc"
+CHATCC_HOME = Path(os.environ.get("CHATCC_HOME", str(Path.home() / ".chatcc")))
 
 
 @dataclass
@@ -43,7 +43,6 @@ class ChannelConfig:
 
 @dataclass
 class SecurityConfig:
-    workspace_root: str = str(Path.home() / "projects")
     dangerous_tool_patterns: dict[str, list[str]] = field(default_factory=lambda: {
         "Bash": [r"\brm\s", r"\bsudo\b", r"\bcurl\b.*\|\s*bash"],
         "Write": [r"/etc/", r"/system/"],
@@ -64,6 +63,8 @@ class BudgetConfig:
 
 @dataclass
 class AppConfig:
+    data_dir: str = field(default_factory=lambda: str(CHATCC_HOME))
+    workspace: str = field(default_factory=lambda: str(Path.home()))
     channel: ChannelConfig = field(default_factory=ChannelConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
@@ -98,6 +99,11 @@ def load_config(path: Path | None = None) -> AppConfig:
     expanded = _expand_env_vars(raw)
     config = AppConfig()
 
+    if "data_dir" in expanded:
+        config.data_dir = str(Path(expanded["data_dir"]).expanduser().resolve())
+    if "workspace" in expanded:
+        config.workspace = str(Path(expanded["workspace"]).expanduser().resolve())
+
     if "channel" in expanded:
         ch = expanded["channel"]
         config.channel = ChannelConfig(
@@ -124,7 +130,6 @@ def load_config(path: Path | None = None) -> AppConfig:
     if "security" in expanded:
         sec = expanded["security"]
         config.security = SecurityConfig(
-            workspace_root=sec.get("workspace_root", config.security.workspace_root),
             dangerous_tool_patterns=sec.get(
                 "dangerous_tool_patterns", config.security.dangerous_tool_patterns
             ),

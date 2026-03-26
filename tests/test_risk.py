@@ -27,15 +27,15 @@ def test_normal_bash_is_safe():
 
 def test_forbidden_path_escape():
     result = assess_risk(
-        "Write", {"path": "/etc/passwd", "content": "hack"}, workspace="/home/user/proj"
+        "Write", {"path": "/etc/passwd", "content": "hack"}, project_path="/home/user/proj"
     )
     assert result == "forbidden"
 
 
-def test_write_inside_workspace():
+def test_write_inside_project():
     result = assess_risk(
         "Write",
         {"path": "/home/user/proj/src/main.py"},
-        workspace="/home/user/proj",
+        project_path="/home/user/proj",
     )
     assert result == "safe"

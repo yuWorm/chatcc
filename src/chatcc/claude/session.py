@@ -162,7 +162,7 @@ class ProjectSession:
         from chatcc.approval.risk import assess_risk
 
         risk = assess_risk(
-            tool_name, input_data, workspace=self.project.path,
+            tool_name, input_data, project_path=self.project.path,
             dangerous_patterns=self._dangerous_patterns,
         )
 

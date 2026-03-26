@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -9,10 +9,9 @@ from chatcc.config import AppConfig
 
 @pytest.fixture
 def app(tmp_path):
-    """Create Application with mocked CHATCC_HOME and async channel."""
-    config = AppConfig()
-    with patch("chatcc.app.CHATCC_HOME", tmp_path):
-        application = Application(config=config)
+    """Create Application with data_dir pointing to tmp_path."""
+    config = AppConfig(data_dir=str(tmp_path), workspace=str(tmp_path))
+    application = Application(config=config)
     application.channel = AsyncMock()
     return application
 

@@ -16,10 +16,10 @@ DANGEROUS_PATTERNS: dict[str, list[str]] = {
 def assess_risk(
     tool_name: str,
     input_data: dict[str, Any],
-    workspace: str | None = None,
+    project_path: str | None = None,
     dangerous_patterns: dict[str, list[str]] | None = None,
 ) -> Literal["safe", "dangerous", "forbidden"]:
-    if workspace and _is_path_escape(input_data, workspace):
+    if project_path and _is_path_escape(input_data, project_path):
         return "forbidden"
 
     if tool_name in SAFE_TOOLS:
@@ -35,11 +35,11 @@ def assess_risk(
     return "safe"
 
 
-def _is_path_escape(input_data: dict[str, Any], workspace: str) -> bool:
+def _is_path_escape(input_data: dict[str, Any], project_path: str) -> bool:
     for key in ("path", "file_path", "directory"):
         if key in input_data:
             resolved = os.path.realpath(str(input_data[key]))
-            ws_resolved = os.path.realpath(workspace)
-            if not resolved.startswith(ws_resolved):
+            boundary = os.path.realpath(project_path)
+            if not resolved.startswith(boundary):
                 return True
     return False

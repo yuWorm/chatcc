@@ -13,24 +13,36 @@ class ProjectManager:
     def __init__(
         self,
         data_dir: Path | None = None,
-        workspace_root: Path | str | None = None,
+        workspace: Path | str | None = None,
         claude_defaults: ClaudeDefaultsConfig | None = None,
     ):
         self._data_dir = data_dir or (Path.home() / ".chatcc" / "projects")
-        self._workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root else Path.home() / "projects"
+        self._workspace = Path(workspace).expanduser().resolve() if workspace else Path.home()
         self._claude_defaults = claude_defaults
         self._projects: dict[str, Project] = {}
         self._load_all()
 
-    def _resolve_project_path(self, path: str) -> str:
-        """Resolve a project path against workspace_root if it's relative.
+    @property
+    def workspace(self) -> Path:
+        return self._workspace
 
-        Handles ~ expansion in both the path and workspace_root.
+    @property
+    def projects_root(self) -> Path:
+        return self._workspace / "projects"
+
+    def _resolve_project_path(self, name: str, path: str | None = None) -> str:
+        """Resolve project code path.
+
+        Default: workspace/projects/<name>.
+        Relative paths resolve against workspace/projects/.
+        Absolute paths are used as-is.
         """
+        if path is None:
+            return str((self.projects_root / name).resolve())
         p = Path(path).expanduser()
         if p.is_absolute():
             return str(p.resolve())
-        return str((self._workspace_root / p).resolve())
+        return str((self.projects_root / p).resolve())
 
     @property
     def default_project(self) -> Project | None:
@@ -43,12 +55,12 @@ class ProjectManager:
     def active_count(self) -> int:
         return len(self._projects)
 
-    def create_project(self, name: str, path: str) -> Project:
+    def create_project(self, name: str, path: str | None = None) -> Project:
         if name in self._projects:
             raise ValueError(f"Project '{name}' already exists")
 
         is_default = len(self._projects) == 0
-        resolved_path = self._resolve_project_path(path)
+        resolved_path = self._resolve_project_path(name, path)
 
         config = ProjectConfig()
         if self._claude_defaults:
@@ -160,7 +172,7 @@ class ProjectManager:
                 claude_opts = data.get("claude_options", {})
                 project = Project(
                     name=data["name"],
-                    path=self._resolve_project_path(data["path"]),
+                    path=self._resolve_project_path(data["name"], data.get("path")),
                     created_at=datetime.fromisoformat(
                         data.get("created_at", datetime.now().isoformat())
                     ),

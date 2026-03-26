@@ -7,13 +7,14 @@ from pydantic_ai import Agent, RunContext
 
 def register_project_tools(agent: Agent) -> None:
     @agent.tool
-    def create_project(ctx: RunContext[Any], name: str, path: str) -> str:
+    def create_project(ctx: RunContext[Any], name: str, path: str = "") -> str:
+        """创建项目。path 为空则使用默认路径 workspace/projects/<name>。"""
         pm = ctx.deps.project_manager
         if not pm:
             return "错误: 项目管理器未初始化"
         try:
-            pm.create_project(name, path)
-            return f"项目 '{name}' 创建成功 (路径: {path})"
+            proj = pm.create_project(name, path or None)
+            return f"项目 '{name}' 创建成功 (路径: {proj.path})"
         except ValueError as e:
             return f"创建失败: {e}"
 

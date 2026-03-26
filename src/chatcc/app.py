@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from chatcc.agent.dispatcher import AgentDeps, Dispatcher
 from chatcc.agent.provider import build_model_from_config
@@ -11,7 +12,7 @@ from chatcc.channel.message import InboundMessage, OutboundMessage
 from chatcc.claude.task_manager import TaskManager
 from chatcc.command.commands import get_builtin_commands
 from chatcc.command.registry import CommandRegistry
-from chatcc.config import CHATCC_HOME, AppConfig, load_config
+from chatcc.config import AppConfig, load_config
 from chatcc.cost.tracker import CostTracker
 from chatcc.memory.history import ConversationHistory
 from chatcc.memory.longterm import LongTermMemory
@@ -26,18 +27,19 @@ from loguru import logger
 class Application:
     def __init__(self, config: AppConfig | None = None):
         self.config = config or load_config()
+        data_dir = Path(self.config.data_dir)
 
         # Core subsystems
         self.project_manager = ProjectManager(
-            data_dir=CHATCC_HOME / "projects",
-            workspace_root=self.config.security.workspace_root,
+            data_dir=data_dir / "projects",
+            workspace=self.config.workspace,
             claude_defaults=self.config.claude_defaults,
         )
         self.approval_table = ApprovalTable()
         self.cost_tracker = CostTracker(budget_limit=self.config.budget.daily_limit)
-        self.history = ConversationHistory(storage_dir=CHATCC_HOME / "history")
+        self.history = ConversationHistory(storage_dir=data_dir / "history")
         self.longterm_memory = LongTermMemory(
-            memory_dir=CHATCC_HOME / "memory",
+            memory_dir=data_dir / "memory",
             recent_days=self.config.agent.memory.get("recent_daily_notes", 3),
         )
         self.summary_manager = SummaryManager(
@@ -45,7 +47,8 @@ class Application:
             longterm_memory=self.longterm_memory,
             config=self.config.agent.memory,
         )
-        self.service_manager = ServiceManager(services_dir=CHATCC_HOME / "services")
+        workspace = Path(self.config.workspace)
+        self.service_manager = ServiceManager(services_dir=workspace / "services")
         self.task_manager = TaskManager(
             project_manager=self.project_manager,
             approval_table=self.approval_table,

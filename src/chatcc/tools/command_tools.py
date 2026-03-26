@@ -6,34 +6,32 @@ from typing import Any
 
 from pydantic_ai import Agent, RunContext
 
-from chatcc.config import load_config
-
 DEFAULT_COMMAND_TIMEOUT = 30.0
 MAX_OUTPUT_CHARS = 4000
 
 
-def is_project_within_workspace(project_path: str, workspace_root: str) -> bool:
-    root = os.path.realpath(workspace_root)
-    resolved = os.path.realpath(project_path)
+def is_path_within(child: str, parent: str) -> bool:
+    parent_resolved = os.path.realpath(parent)
+    child_resolved = os.path.realpath(child)
     try:
-        common = os.path.commonpath([root, resolved])
+        common = os.path.commonpath([parent_resolved, child_resolved])
     except ValueError:
         return False
-    return common == root
+    return common == parent_resolved
 
 
-async def run_command_in_workspace(
+async def run_command_in_project(
     cwd: str,
     command: str,
     *,
-    workspace_root: str,
+    workspace: str,
     timeout: float = DEFAULT_COMMAND_TIMEOUT,
 ) -> str:
-    """Run a shell command in cwd; cwd must lie under workspace_root (after realpath)."""
+    """Run a shell command in project cwd; cwd must lie under workspace (after realpath)."""
     cwd_resolved = os.path.realpath(cwd)
     if not os.path.isdir(cwd_resolved):
         return f"错误: 项目路径不存在: {cwd_resolved}"
-    if not is_project_within_workspace(cwd_resolved, workspace_root):
+    if not is_path_within(cwd_resolved, workspace):
         return "错误: 项目路径不在允许的工作区内"
 
     try:
@@ -94,10 +92,9 @@ def register_command_tools(agent: Agent) -> None:
                 else "错误: 未设置默认项目"
             )
 
-        workspace_root = load_config().security.workspace_root
-        return await run_command_in_workspace(
+        return await run_command_in_project(
             proj.path,
             command,
-            workspace_root=workspace_root,
+            workspace=str(pm.workspace),
             timeout=DEFAULT_COMMAND_TIMEOUT,
         )

@@ -14,7 +14,8 @@ def test_default_config():
     config = AppConfig()
     assert config.channel.type == "cli"
     assert config.agent.active_provider == "anthropic"
-    assert config.security.workspace_root is not None
+    assert config.data_dir is not None
+    assert config.workspace is not None
 
 
 def test_load_config_from_yaml(tmp_path):

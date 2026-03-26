@@ -20,7 +20,7 @@ class RunningService:
 
 class ServiceManager:
     def __init__(self, services_dir: Path | None = None):
-        self._services_dir = services_dir or (Path.home() / ".chatcc" / "services")
+        self._services_dir = services_dir or (Path.home() / "services")
         self._services: dict[str, dict[str, RunningService]] = {}
 
     async def start(
