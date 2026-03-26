@@ -18,19 +18,43 @@ class ConversationHistory:
     def message_count(self) -> int:
         return len(self._messages)
 
-    def add_message(self, role: str, content: str) -> None:
+    def add_message(
+        self, role: str, content: str, project: str | None = None
+    ) -> None:
         entry = {
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
+            "project": project,
         }
         self._messages.append(entry)
         self._append_to_file(entry)
 
-    def get_messages(self, limit: int | None = None) -> list[dict[str, Any]]:
+    def tag_recent(self, project: str, count: int = 2) -> None:
+        """Retroactively tag the last *count* messages with a project name.
+
+        Only overwrites messages whose ``project`` is currently ``None``.
+        After tagging the file is rewritten so the tags persist.
+        """
+        changed = False
+        for msg in self._messages[-count:]:
+            if msg.get("project") is None:
+                msg["project"] = project
+                changed = True
+        if changed:
+            self._rewrite_file()
+
+    def get_messages(
+        self,
+        limit: int | None = None,
+        project: str | None = None,
+    ) -> list[dict[str, Any]]:
+        msgs = self._messages
+        if project is not None:
+            msgs = [m for m in msgs if m.get("project") == project]
         if limit is None:
-            return list(self._messages)
-        return list(self._messages[-limit:])
+            return list(msgs)
+        return list(msgs[-limit:])
 
     def truncate(self, keep_recent: int = 10) -> list[dict[str, Any]]:
         removed = (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from chatcc.memory.history import ConversationHistory
@@ -28,38 +29,51 @@ class SummaryManager:
     async def compress(self, summarizer: Any = None) -> str | None:
         """Compress old messages: keep recent N, summarize old ones.
 
+        Messages are grouped by project before summarizing so that each
+        project's context remains coherent in long-term memory.
+
         Args:
             summarizer: Optional async callable(messages) -> str for generating summaries.
                        If None, uses a simple built-in summarizer.
 
         Returns:
-            Summary text, or None if nothing to compress.
+            Combined summary text, or None if nothing to compress.
         """
         if not self.should_compress():
             return None
 
-        # Truncate, getting removed messages
         removed = self._history.truncate(keep_recent=self.keep_recent)
         if not removed:
             return None
 
-        # Generate summary
-        if summarizer:
-            try:
-                summary = await summarizer(removed)
-            except Exception:
-                logger.exception("Failed to generate summary with LLM")
-                summary = self._simple_summary(removed)
-        else:
-            summary = self._simple_summary(removed)
+        groups = self._group_by_project(removed)
+        summaries: list[str] = []
 
-        # Store summary as daily note in long-term memory
-        self._longterm_memory.append_daily_note(
-            f"会话摘要 ({len(removed)} 条消息): {summary}"
-        )
+        for project, msgs in groups.items():
+            if summarizer:
+                try:
+                    summary = await summarizer(msgs)
+                except Exception:
+                    logger.exception("Failed to generate summary with LLM")
+                    summary = self._simple_summary(msgs)
+            else:
+                summary = self._simple_summary(msgs)
 
-        logger.info("Compressed {} messages into summary", len(removed))
-        return summary
+            label = f"[{project}]" if project else "[通用]"
+            note = f"{label} 会话摘要 ({len(msgs)} 条消息): {summary}"
+            self._longterm_memory.append_daily_note(note)
+            summaries.append(note)
+
+        combined = "\n".join(summaries)
+        logger.info("Compressed {} messages into {} group(s)", len(removed), len(groups))
+        return combined
+
+    @staticmethod
+    def _group_by_project(messages: list[dict]) -> dict[str | None, list[dict]]:
+        groups: dict[str | None, list[dict]] = defaultdict(list)
+        for msg in messages:
+            groups[msg.get("project")].append(msg)
+        return dict(groups)
 
     @staticmethod
     def _simple_summary(messages: list[dict]) -> str:
@@ -69,7 +83,7 @@ class SummaryManager:
             return f"压缩了 {len(messages)} 条历史消息"
 
         topics = []
-        for msg in user_messages[:5]:  # First 5 user messages as topics
+        for msg in user_messages[:5]:
             content = msg.get("content", "")
             if len(content) > 50:
                 content = content[:50] + "..."

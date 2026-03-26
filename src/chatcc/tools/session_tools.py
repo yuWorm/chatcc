@@ -40,6 +40,43 @@ def _truncate(text: str, limit: int = MAX_TEXT_PER_MSG) -> str:
 
 def register_session_tools(agent: Agent) -> None:
     @agent.tool
+    def get_project_history(
+        ctx: RunContext[Any],
+        project: str,
+        limit: int = 20,
+    ) -> str:
+        """获取指定项目的近期对话历史。
+
+        在执行以下操作前**必须**调用此工具：
+        - 向 Claude Code 发送任务 (send_to_claude)
+        - 回答用户关于某项目的进展、决策等问题
+
+        这样可以了解该项目之前讨论过的需求、约束和上下文。
+        """
+        pm = ctx.deps.project_manager
+        history = ctx.deps.history
+        if not pm or not history:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return f"错误: 未找到项目 '{project}'"
+
+        messages = history.get_messages(project=proj_name, limit=limit)
+        if not messages:
+            return f"[{proj_name}] 暂无该项目的对话记录"
+
+        lines: list[str] = [f"[{proj_name}] 近期 {len(messages)} 条对话:"]
+        for msg in messages:
+            role = "👤" if msg.get("role") == "user" else "🤖"
+            content = msg.get("content", "")
+            if len(content) > 200:
+                content = content[:200] + "…"
+            lines.append(f"{role} {content}")
+
+        return "\n".join(lines)
+
+    @agent.tool
     async def send_to_claude(ctx: RunContext[Any], prompt: str, project: str = "") -> str:
         """将开发指令发送到目标项目的 Claude Code 会话"""
         tm = ctx.deps.task_manager

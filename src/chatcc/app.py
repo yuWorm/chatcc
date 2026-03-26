@@ -239,7 +239,8 @@ class Application:
         self._last_chat_id = message.chat_id
         await self.channel.send_typing(message.chat_id)
 
-        self.history.add_message("user", message.content)
+        # Augmented 命令可能自带 project（如 /task test_wap xxx）
+        cmd_project = result.parsed_args.get("project") or None
 
         deps = AgentDeps(
             project_manager=self.project_manager,
@@ -257,15 +258,17 @@ class Application:
 
         try:
             run_result = await self.dispatcher.agent.run(agent_input, deps=deps)
-            response_text = run_result.output
+            response = run_result.output
 
-            self.history.add_message("assistant", response_text)
+            project = response.project or cmd_project
+            self.history.add_message("user", message.content, project=project)
+            self.history.add_message("assistant", response.content, project=project)
 
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response_text)
+                OutboundMessage(chat_id=message.chat_id, content=response.content)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
@@ -294,8 +297,6 @@ class Application:
         self._last_chat_id = message.chat_id
         await self.channel.send_typing(message.chat_id)
 
-        self.history.add_message("user", message.content)
-
         deps = AgentDeps(
             project_manager=self.project_manager,
             approval_table=self.approval_table,
@@ -310,15 +311,17 @@ class Application:
 
         try:
             result = await self.dispatcher.agent.run(message.content, deps=deps)
-            response_text = result.output
+            response = result.output
 
-            self.history.add_message("assistant", response_text)
+            project = response.project
+            self.history.add_message("user", message.content, project=project)
+            self.history.add_message("assistant", response.content, project=project)
 
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response_text)
+                OutboundMessage(chat_id=message.chat_id, content=response.content)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
