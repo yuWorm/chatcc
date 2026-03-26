@@ -31,11 +31,15 @@ class Application:
         self.project_manager = ProjectManager(
             data_dir=CHATCC_HOME / "projects",
             workspace_root=self.config.security.workspace_root,
+            claude_defaults=self.config.claude_defaults,
         )
         self.approval_table = ApprovalTable()
         self.cost_tracker = CostTracker(budget_limit=self.config.budget.daily_limit)
         self.history = ConversationHistory(storage_dir=CHATCC_HOME / "history")
-        self.longterm_memory = LongTermMemory(memory_dir=CHATCC_HOME / "memory")
+        self.longterm_memory = LongTermMemory(
+            memory_dir=CHATCC_HOME / "memory",
+            recent_days=self.config.agent.memory.get("recent_daily_notes", 3),
+        )
         self.summary_manager = SummaryManager(
             history=self.history,
             longterm_memory=self.longterm_memory,
@@ -46,6 +50,7 @@ class Application:
             project_manager=self.project_manager,
             approval_table=self.approval_table,
             on_notify=self._on_claude_notify,
+            dangerous_patterns=self.config.security.dangerous_tool_patterns,
         )
 
         # Command system

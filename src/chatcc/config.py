@@ -27,7 +27,7 @@ class AgentConfig:
     persona: str = "default"
     memory: dict[str, Any] = field(default_factory=lambda: {
         "summarize_threshold": 50,
-        "summarize_token_percent": 75,
+        "keep_recent": 10,
         "recent_daily_notes": 3,
     })
 
@@ -46,6 +46,7 @@ class SecurityConfig:
     workspace_root: str = str(Path.home() / "projects")
     dangerous_tool_patterns: dict[str, list[str]] = field(default_factory=lambda: {
         "Bash": [r"\brm\s", r"\bsudo\b", r"\bcurl\b.*\|\s*bash"],
+        "Write": [r"/etc/", r"/system/"],
     })
 
 
@@ -59,7 +60,6 @@ class ClaudeDefaultsConfig:
 @dataclass
 class BudgetConfig:
     daily_limit: float | None = None
-    session_limit: float | None = None
 
 
 @dataclass
@@ -142,7 +142,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         bd = expanded["budget"]
         config.budget = BudgetConfig(
             daily_limit=bd.get("daily_limit"),
-            session_limit=bd.get("session_limit"),
         )
 
     return config

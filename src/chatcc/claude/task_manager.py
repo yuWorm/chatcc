@@ -23,10 +23,12 @@ class TaskManager:
         project_manager: ProjectManager,
         approval_table: ApprovalTable | None = None,
         on_notify: Callable[[str, str], Awaitable[None]] | None = None,
+        dangerous_patterns: dict[str, list[str]] | None = None,
     ):
         self._project_manager = project_manager
         self._approval_table = approval_table
         self._on_notify = on_notify
+        self._dangerous_patterns = dangerous_patterns
         self._sessions: dict[str, ProjectSession] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_logs: dict[str, TaskLog] = {}
@@ -44,6 +46,7 @@ class TaskManager:
             on_notification=self._on_notify,
             on_permission=self._build_permission_handler(),
             approval_table=self._approval_table,
+            dangerous_patterns=self._dangerous_patterns,
         )
         self._sessions[project_name] = session
         return session

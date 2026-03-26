@@ -46,6 +46,7 @@ class ProjectSession:
         on_notification: Callable[[str, str], Awaitable[None]] | None = None,
         on_permission: Callable[[str, dict], Awaitable[bool]] | None = None,
         approval_table: ApprovalTable | None = None,
+        dangerous_patterns: dict[str, list[str]] | None = None,
     ):
         self.project = project
         self.client: ClaudeSDKClient | None = None
@@ -54,6 +55,7 @@ class ProjectSession:
         self._on_notification = on_notification
         self._on_permission = on_permission
         self._approval_table = approval_table
+        self._dangerous_patterns = dangerous_patterns
 
     def _build_options(self) -> ClaudeAgentOptions:
         hooks = {}
@@ -160,7 +162,8 @@ class ProjectSession:
         from chatcc.approval.risk import assess_risk
 
         risk = assess_risk(
-            tool_name, input_data, workspace=self.project.path
+            tool_name, input_data, workspace=self.project.path,
+            dangerous_patterns=self._dangerous_patterns,
         )
 
         if risk == "safe":

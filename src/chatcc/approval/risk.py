@@ -17,6 +17,7 @@ def assess_risk(
     tool_name: str,
     input_data: dict[str, Any],
     workspace: str | None = None,
+    dangerous_patterns: dict[str, list[str]] | None = None,
 ) -> Literal["safe", "dangerous", "forbidden"]:
     if workspace and _is_path_escape(input_data, workspace):
         return "forbidden"
@@ -24,9 +25,10 @@ def assess_risk(
     if tool_name in SAFE_TOOLS:
         return "safe"
 
-    if tool_name in DANGEROUS_PATTERNS:
+    patterns = dangerous_patterns if dangerous_patterns is not None else DANGEROUS_PATTERNS
+    if tool_name in patterns:
         input_str = str(input_data)
-        for pattern in DANGEROUS_PATTERNS[tool_name]:
+        for pattern in patterns[tool_name]:
             if re.search(pattern, input_str):
                 return "dangerous"
 

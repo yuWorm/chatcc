@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from chatcc.config import ClaudeDefaultsConfig
 from chatcc.project.models import Project, ProjectConfig
 
 
@@ -13,9 +14,11 @@ class ProjectManager:
         self,
         data_dir: Path | None = None,
         workspace_root: Path | str | None = None,
+        claude_defaults: ClaudeDefaultsConfig | None = None,
     ):
         self._data_dir = data_dir or (Path.home() / ".chatcc" / "projects")
         self._workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root else Path.home() / "projects"
+        self._claude_defaults = claude_defaults
         self._projects: dict[str, Project] = {}
         self._load_all()
 
@@ -46,7 +49,17 @@ class ProjectManager:
 
         is_default = len(self._projects) == 0
         resolved_path = self._resolve_project_path(path)
-        project = Project(name=name, path=resolved_path, is_default=is_default)
+
+        config = ProjectConfig()
+        if self._claude_defaults:
+            config.permission_mode = self._claude_defaults.permission_mode
+            config.setting_sources = list(self._claude_defaults.setting_sources)
+            config.model = self._claude_defaults.model
+
+        project = Project(
+            name=name, path=resolved_path,
+            is_default=is_default, config=config,
+        )
         self._projects[name] = project
         self._save_project(project)
         return project

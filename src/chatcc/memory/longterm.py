@@ -5,9 +5,10 @@ from pathlib import Path
 
 
 class LongTermMemory:
-    def __init__(self, memory_dir: Path | None = None):
+    def __init__(self, memory_dir: Path | None = None, recent_days: int = 3):
         self._dir = memory_dir or (Path.home() / ".chatcc" / "memory")
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._recent_days = recent_days
 
     @property
     def _core_file(self) -> Path:
@@ -42,13 +43,14 @@ class LongTermMemory:
                 notes.append(daily_file.read_text(encoding="utf-8"))
         return notes
 
-    def get_context(self, recent_days: int = 3) -> str:
+    def get_context(self, recent_days: int | None = None) -> str:
+        days = recent_days if recent_days is not None else self._recent_days
         parts = []
         core = self.read_core()
         if core:
             parts.append(f"## 长期记忆\n{core}")
 
-        daily_notes = self.get_recent_daily_notes(days=recent_days)
+        daily_notes = self.get_recent_daily_notes(days=days)
         if daily_notes:
             parts.append("## 近期笔记")
             for note in daily_notes:
