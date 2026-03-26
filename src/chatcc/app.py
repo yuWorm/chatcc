@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from chatcc.agent.dispatcher import AgentDeps, Dispatcher
+from chatcc.agent.prompt import ensure_personas
 from chatcc.agent.provider import build_model_from_config
 from chatcc.approval.table import ApprovalTable
 from chatcc.channel.base import MessageChannel
@@ -42,6 +43,7 @@ class Application:
             memory_dir=data_dir / "memory",
             recent_days=self.config.agent.memory.get("recent_daily_notes", 3),
         )
+        self.personas_dir = ensure_personas(data_dir)
         self.summary_manager = SummaryManager(
             history=self.history,
             longterm_memory=self.longterm_memory,
@@ -132,6 +134,7 @@ class Application:
                 provider_name=self.config.agent.active_provider,
                 model_id=model,
                 persona=self.config.agent.persona,
+                personas_dir=self.personas_dir,
             )
         except KeyError:
             logger.warning(

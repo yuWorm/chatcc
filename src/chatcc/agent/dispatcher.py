@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
@@ -34,9 +35,11 @@ class Dispatcher:
         provider_name: str,
         model_id: str | Any,
         persona: str = "default",
+        personas_dir: Path | None = None,
     ):
         self.provider_name = provider_name
         self.persona = persona
+        self.personas_dir = personas_dir
 
         self.agent = Agent(
             model_id,
@@ -69,6 +72,7 @@ class Dispatcher:
             active_count=active_count,
             pending_count=pending_count,
             memory_context=memory_context,
+            personas_dir=self.personas_dir,
         )
 
     def _register_tools(self) -> None:
