@@ -152,6 +152,9 @@ class TaskManager:
                 task_log.append(record)
             self._update_session(project_name, record)
             session.project.current_task = None
+            # Disconnect here so it runs in the same asyncio Task that
+            # called connect(), avoiding anyio cross-task cancel-scope errors.
+            await session.disconnect()
 
     async def _notify(self, project_name: str, message: str) -> None:
         if self._on_notify:
@@ -195,7 +198,10 @@ class TaskManager:
         for name in list(self._sessions):
             self.close_session(name)
         for session in self._sessions.values():
-            await session.disconnect()
+            try:
+                await session.disconnect()
+            except RuntimeError:
+                pass
         self._sessions.clear()
         self._running_tasks.clear()
 

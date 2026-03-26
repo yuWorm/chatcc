@@ -5,7 +5,14 @@ from collections.abc import Callable, Awaitable
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    HookMatcher,
+    ResultMessage,
+    TextBlock,
+)
 
 from chatcc.project.models import Project
 
@@ -82,26 +89,23 @@ class ProjectSession:
         result: dict[str, Any] | None = None
         try:
             async for message in self.client.receive_response():
-                msg_type = getattr(message, "type", None)
-
-                if msg_type == "assistant":
-                    content_blocks = getattr(message, "content", [])
-                    for block in content_blocks:
-                        text = getattr(block, "text", None)
-                        if text and self._on_notification:
-                            await self._on_notification(self.project.name, text)
-                elif msg_type == "result":
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock) and block.text:
+                            if self._on_notification:
+                                await self._on_notification(
+                                    self.project.name, block.text
+                                )
+                elif isinstance(message, ResultMessage):
                     self.task_state = TaskState.COMPLETED
                     result = {
                         "type": "result",
-                        "session_id": getattr(
-                            message, "session_id", self.active_session_id
-                        ),
-                        "cost": getattr(message, "cost_usd", 0.0),
+                        "session_id": message.session_id
+                        or self.active_session_id,
+                        "cost": message.total_cost_usd or 0.0,
                     }
-                    sid = getattr(message, "session_id", None)
-                    if sid:
-                        self.active_session_id = sid
+                    if message.session_id:
+                        self.active_session_id = message.session_id
                     break
         except asyncio.CancelledError:
             self.task_state = TaskState.CANCELLED
