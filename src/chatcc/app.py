@@ -56,6 +56,7 @@ class Application:
             approval_table=self.approval_table,
             on_notify=self._on_claude_notify,
             dangerous_patterns=self.config.security.dangerous_tool_patterns,
+            session_policy=self.config.session_policy,
         )
 
         # Command system

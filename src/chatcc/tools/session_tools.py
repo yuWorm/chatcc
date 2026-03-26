@@ -77,8 +77,20 @@ def register_session_tools(agent: Agent) -> None:
         return "\n".join(lines)
 
     @agent.tool
-    async def send_to_claude(ctx: RunContext[Any], prompt: str, project: str = "") -> str:
-        """将开发指令发送到目标项目的 Claude Code 会话"""
+    async def send_to_claude(
+        ctx: RunContext[Any],
+        prompt: str,
+        project: str = "",
+        on_conflict: str = "",
+    ) -> str:
+        """将开发指令发送到目标项目的 Claude Code 会话。
+
+        当项目正在执行任务时 submit_task 会返回 conflict 状态。此时你**必须**
+        询问用户选择策略，然后用 on_conflict 参数重新调用本工具：
+          - "queue"     — 排队等待当前任务完成后执行
+          - "interrupt" — 中断当前任务，优先执行新任务
+          - "cancel"    — 取消本次提交
+        """
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm:
@@ -90,11 +102,25 @@ def register_session_tools(agent: Agent) -> None:
         if not proj_name:
             return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
 
-        return await tm.submit_task(proj_name, prompt)
+        result = await tm.submit_task(proj_name, prompt)
+
+        if result.status == "conflict":
+            if on_conflict == "queue":
+                result = await tm.enqueue_task(proj_name, prompt)
+                return result.message
+            elif on_conflict == "interrupt":
+                result = await tm.interrupt_and_submit(proj_name, prompt)
+                return result.message
+            elif on_conflict == "cancel":
+                return "已取消提交"
+            # No strategy chosen yet — tell the agent to ask the user.
+            return result.message
+
+        return result.message
 
     @agent.tool
     def get_task_status(ctx: RunContext[Any], project: str = "", history: int = 0) -> str:
-        """获取项目的 Claude Code 任务状态。设置 history > 0 可查看最近 N 条历史任务。"""
+        """获取项目的 Claude Code 任务状态（含队列信息）。设置 history > 0 可查看最近 N 条历史任务。"""
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm or not pm:
@@ -151,7 +177,10 @@ def register_session_tools(agent: Agent) -> None:
 
     @agent.tool
     async def new_session(ctx: RunContext[Any], project: str = "") -> str:
-        """为项目创建新的 Claude Code 会话 (断开旧会话，记录关闭)"""
+        """为项目创建新的 Claude Code 会话 (断开旧会话，记录关闭)。
+
+        如果当前有任务正在执行会先中断，队列中的待执行任务保留（将在新会话中执行）。
+        """
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm or not pm:
@@ -165,16 +194,61 @@ def register_session_tools(agent: Agent) -> None:
         if not session:
             return f"错误: 项目 '{proj_name}' 不存在"
 
+        # Interrupt running task if any.
+        if session.task_state == TaskState.RUNNING:
+            await tm.interrupt_task(proj_name)
+
         old_sid = session.active_session_id
         tm.close_session(proj_name)
         await session.disconnect()
         session.active_session_id = None
         session.task_state = TaskState.IDLE
 
+        queued = tm.get_queue_info(proj_name)
         msg = f"项目 '{proj_name}' 的 Claude Code 会话已重置"
         if old_sid:
             msg += f" (已关闭会话 {old_sid[:8]}…)"
+        if queued:
+            msg += f"\n队列中仍有 {len(queued)} 个任务，将在新会话中执行"
         return msg
+
+    @agent.tool
+    def get_queue(ctx: RunContext[Any], project: str = "") -> str:
+        """查看项目的任务等待队列。"""
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        queued = tm.get_queue_info(proj_name)
+        if not queued:
+            return f"[{proj_name}] 队列为空"
+
+        lines: list[str] = [f"[{proj_name}] 队列中 {len(queued)} 个任务:"]
+        for i, q in enumerate(queued, 1):
+            prio = "⚡" if q.priority < 0 else ""
+            lines.append(f"  {i}. {prio}#{q.record.id} {q.prompt[:80]}")
+        return "\n".join(lines)
+
+    @agent.tool
+    def cancel_queued_task(ctx: RunContext[Any], task_id: str, project: str = "") -> str:
+        """取消队列中尚未执行的任务（不影响正在执行的任务）。"""
+        tm = ctx.deps.task_manager
+        pm = ctx.deps.project_manager
+        if not tm or not pm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        if tm.cancel_queued(proj_name, task_id):
+            return f"已取消任务 #{task_id}"
+        return f"#{task_id} 不在队列中（可能已在执行或不存在）"
 
     @agent.tool
     def get_session_info(ctx: RunContext[Any], project: str = "", count: int = 5) -> str:
@@ -259,6 +333,9 @@ def register_session_tools(agent: Agent) -> None:
             if session and session.active_session_id:
                 session_id_str = f" | 会话: {session.active_session_id[:8]}…"
 
+            queued = tm.get_queue_info(name)
+            queue_str = f" | 队列: {len(queued)}" if queued else ""
+
             session_log = tm.get_session_log(name)
             task_log = tm.get_task_log(name)
             session_count = session_log.count() if session_log else 0
@@ -274,7 +351,7 @@ def register_session_tools(agent: Agent) -> None:
 
             lines.append(
                 f"\n[{name}]{marker}\n"
-                f"  连接: {connected} | 状态: {state}{session_id_str}\n"
+                f"  连接: {connected} | 状态: {state}{session_id_str}{queue_str}\n"
                 f"  累计: {task_count} 任务 / {session_count} 会话{cost_str}"
                 f"{current_info}"
             )
@@ -289,7 +366,7 @@ def register_session_tools(agent: Agent) -> None:
         count: int = 10,
         status: str = "",
     ) -> str:
-        """查看项目的详细任务历史记录。可按 status (completed/failed/cancelled) 过滤。"""
+        """查看项目的详细任务历史记录。可按 status (completed/failed/cancelled/interrupted) 过滤。"""
         tm = ctx.deps.task_manager
         pm = ctx.deps.project_manager
         if not tm or not pm:

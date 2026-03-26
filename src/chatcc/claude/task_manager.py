@@ -1,22 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from chatcc.claude.session import ProjectSession, TaskState
-from chatcc.project.models import SessionRecord, TaskRecord
+from chatcc.project.models import (
+    QueuedTask,
+    SessionRecord,
+    SubmitResult,
+    TaskRecord,
+)
 from chatcc.project.session_log import SessionLog
 from chatcc.project.task_log import TaskLog
 
 if TYPE_CHECKING:
     from chatcc.approval.table import ApprovalTable
+    from chatcc.config import SessionPolicyConfig
     from chatcc.project.manager import ProjectManager
+
+_CONTEXT_TOO_LONG_MARKERS = ("context_length", "too long", "max_tokens", "context window")
 
 
 class TaskManager:
-    """管理所有项目的 ProjectSession 生命周期"""
+    """Manages per-project task queues, workers, and ProjectSession lifecycles."""
 
     def __init__(
         self,
@@ -24,18 +35,28 @@ class TaskManager:
         approval_table: ApprovalTable | None = None,
         on_notify: Callable[[str, str], Awaitable[None]] | None = None,
         dangerous_patterns: dict[str, list[str]] | None = None,
+        session_policy: SessionPolicyConfig | None = None,
     ):
         self._project_manager = project_manager
         self._approval_table = approval_table
         self._on_notify = on_notify
         self._dangerous_patterns = dangerous_patterns
+
+        if session_policy is None:
+            from chatcc.config import SessionPolicyConfig
+            session_policy = SessionPolicyConfig()
+        self._policy = session_policy
+
         self._sessions: dict[str, ProjectSession] = {}
-        self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self._queues: dict[str, asyncio.PriorityQueue[tuple[int, float, QueuedTask]]] = {}
+        self._workers: dict[str, asyncio.Task[None]] = {}
+        self._current_tasks: dict[str, QueuedTask] = {}
         self._task_logs: dict[str, TaskLog] = {}
         self._session_logs: dict[str, SessionLog] = {}
 
+    # ── Session / log accessors ────────────────────────────────────
+
     def get_session(self, project_name: str) -> ProjectSession | None:
-        """Get existing session for a project, or create one if the project exists"""
         if project_name in self._sessions:
             return self._sessions[project_name]
         project = self._project_manager.get_project(project_name)
@@ -72,7 +93,6 @@ class TaskManager:
         return log
 
     def _update_session(self, project_name: str, record: TaskRecord) -> None:
-        """Create or update a SessionRecord after a task completes."""
         if not record.session_id:
             return
         session_log = self.get_session_log(project_name)
@@ -94,7 +114,6 @@ class TaskManager:
             session_log.append(sr)
 
     def close_session(self, project_name: str) -> bool:
-        """Mark the active session for a project as closed. Returns True if closed."""
         session_log = self.get_session_log(project_name)
         if not session_log:
             return False
@@ -106,44 +125,200 @@ class TaskManager:
         session_log.append(active)
         return True
 
-    async def submit_task(self, project_name: str, prompt: str) -> str:
-        """Submit a dev task to a project. Returns status message.
-        Same project serialized (rejects if RUNNING), cross-project parallel.
+    # ── Queue infrastructure ───────────────────────────────────────
 
-        The entire SDK lifecycle (connect → query → consume → disconnect) runs
-        inside a single ``asyncio.Task`` so that the anyio cancel scope created
-        by ``connect()`` is always exited in the same task it was entered in.
-        """
+    def _ensure_queue(self, project_name: str) -> asyncio.PriorityQueue[tuple[int, float, QueuedTask]]:
+        if project_name not in self._queues:
+            self._queues[project_name] = asyncio.PriorityQueue()
+        return self._queues[project_name]
+
+    def _ensure_worker(self, project_name: str) -> None:
+        worker = self._workers.get(project_name)
+        if worker and not worker.done():
+            return
+        self._workers[project_name] = asyncio.create_task(
+            self._worker_loop(project_name),
+            name=f"worker-{project_name}",
+        )
+
+    # ── Submit / enqueue / interrupt ───────────────────────────────
+
+    async def submit_task(self, project_name: str, prompt: str) -> SubmitResult:
+        """Submit a task. Returns *conflict* when the project is already busy
+        so the caller can ask the user what to do."""
         session = self.get_session(project_name)
         if not session:
-            return f"错误: 项目 '{project_name}' 不存在"
+            return SubmitResult(status="error", message=f"错误: 项目 '{project_name}' 不存在")
 
+        is_busy = project_name in self._current_tasks
+        if is_busy:
+            return SubmitResult(
+                status="conflict",
+                message=(
+                    f"项目 '{project_name}' 正在执行任务，"
+                    "请选择: 排队(queue) / 打断(interrupt) / 取消(cancel)"
+                ),
+            )
+
+        record = TaskRecord(prompt=prompt, status="queued", session_id=session.active_session_id)
+        queued = QueuedTask(prompt=prompt, record=record, priority=0)
+        queue = self._ensure_queue(project_name)
+        await queue.put((queued.priority, time.monotonic(), queued))
+        self._ensure_worker(project_name)
+        return SubmitResult(
+            status="submitted",
+            message=f"任务已提交到项目 '{project_name}' (#{record.id})",
+            task_id=record.id,
+        )
+
+    async def enqueue_task(self, project_name: str, prompt: str) -> SubmitResult:
+        """Force-enqueue regardless of current state."""
+        session = self.get_session(project_name)
+        if not session:
+            return SubmitResult(status="error", message=f"错误: 项目 '{project_name}' 不存在")
+
+        record = TaskRecord(prompt=prompt, status="queued", session_id=session.active_session_id)
+        queued = QueuedTask(prompt=prompt, record=record, priority=0)
+        queue = self._ensure_queue(project_name)
+        await queue.put((queued.priority, time.monotonic(), queued))
+        self._ensure_worker(project_name)
+
+        position = queue.qsize()
+        return SubmitResult(
+            status="queued",
+            message=f"任务 #{record.id} 已加入队列 (排队位置: {position})",
+            task_id=record.id,
+            queue_position=position,
+        )
+
+    async def interrupt_and_submit(self, project_name: str, prompt: str) -> SubmitResult:
+        """Interrupt the current task and insert *prompt* at the front of the queue."""
+        session = self.get_session(project_name)
+        if not session:
+            return SubmitResult(status="error", message=f"错误: 项目 '{project_name}' 不存在")
+
+        record = TaskRecord(prompt=prompt, status="queued", session_id=session.active_session_id)
+        queued = QueuedTask(prompt=prompt, record=record, priority=-1)
+        queue = self._ensure_queue(project_name)
+        # Enqueue first so the task is safe even if interrupt raises.
+        await queue.put((queued.priority, time.monotonic(), queued))
+        self._ensure_worker(project_name)
+
+        # Interrupt the running SDK call; consume_response will end and the
+        # worker loop picks up the next (high-priority) item.
         if session.task_state == TaskState.RUNNING:
-            return f"项目 '{project_name}' 正在执行任务，请等待完成或使用 /stop"
+            await session.interrupt()
 
-        record = TaskRecord(prompt=prompt, session_id=session.active_session_id)
+        return SubmitResult(
+            status="submitted",
+            message=f"已中断当前任务，新任务 #{record.id} 将优先执行",
+            task_id=record.id,
+        )
+
+    async def interrupt_task(self, project_name: str) -> str:
+        """Interrupt the running task for a project (no new task enqueued)."""
+        session = self._sessions.get(project_name)
+        if not session:
+            return f"项目 '{project_name}' 无活跃会话"
+        if session.task_state != TaskState.RUNNING:
+            return f"项目 '{project_name}' 当前无运行中的任务"
+        await session.interrupt()
+        return f"已中断项目 '{project_name}' 的任务"
+
+    # ── Queue queries ──────────────────────────────────────────────
+
+    def get_queue_info(self, project_name: str) -> list[QueuedTask]:
+        queue = self._queues.get(project_name)
+        if not queue:
+            return []
+        # PriorityQueue stores items in _queue (internal list).
+        return [item[2] for item in list(queue._queue)]  # noqa: SLF001
+
+    def cancel_queued(self, project_name: str, task_id: str) -> bool:
+        """Remove a queued (not yet running) task by id. Returns True on success."""
+        queue = self._queues.get(project_name)
+        if not queue:
+            return False
+        # PriorityQueue doesn't support removal; rebuild.
+        original = list(queue._queue)  # noqa: SLF001
+        remaining = [item for item in original if item[2].record.id != task_id]
+        if len(remaining) == len(original):
+            return False
+        queue._queue.clear()  # noqa: SLF001
+        for item in remaining:
+            queue._queue.append(item)  # noqa: SLF001
+        queue._queue.sort()  # noqa: SLF001
+        return True
+
+    # ── Worker loop ────────────────────────────────────────────────
+
+    async def _worker_loop(self, project_name: str) -> None:
+        """Long-lived consumer for one project's task queue.
+
+        The worker keeps the SDK connection alive across consecutive tasks and
+        only disconnects after an idle timeout or when the worker is cancelled.
+        """
+        queue = self._ensure_queue(project_name)
+        idle_timeout = self._policy.idle_disconnect_seconds
+
+        try:
+            while True:
+                # Wait for the next task, disconnecting on idle timeout.
+                try:
+                    _, _, queued = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
+                except asyncio.TimeoutError:
+                    session = self._sessions.get(project_name)
+                    if session:
+                        try:
+                            await session.disconnect()
+                        except RuntimeError:
+                            pass
+                    continue
+
+                self._current_tasks[project_name] = queued
+                try:
+                    await self._run_task_item(project_name, queued)
+                except asyncio.CancelledError:
+                    # Worker itself is being shut down.
+                    queued.record.status = "cancelled"
+                    queued.record.completed_at = datetime.now()
+                    self._persist_task(project_name, queued.record)
+                    raise
+                except Exception:
+                    logger.opt(exception=True).warning(
+                        "Unhandled error in worker for '{}'", project_name
+                    )
+                finally:
+                    self._current_tasks.pop(project_name, None)
+                    queue.task_done()
+
+                # Check session rotation after each task.
+                if self._should_rotate(project_name):
+                    await self._rotate_session(project_name)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._workers.pop(project_name, None)
+
+    async def _run_task_item(self, project_name: str, queued: QueuedTask) -> None:
+        session = self._sessions[project_name]
+        record = queued.record
+        record.status = "running"
         session.project.current_task = record
         session.task_state = TaskState.RUNNING
 
-        task = asyncio.create_task(
-            self._run_task(session, record, prompt)
-        )
-        self._running_tasks[project_name] = task
-        return f"任务已提交到项目 '{project_name}' (#{record.id})"
-
-    async def _run_task(
-        self, session: ProjectSession, record: TaskRecord, prompt: str
-    ) -> None:
-        """Run the full SDK lifecycle in a single asyncio Task.
-
-        connect, query, consume, and disconnect all happen here so that
-        anyio cancel scopes are entered and exited in the same task.
-        """
-        project_name = session.project.name
         try:
             client = await session.ensure_connected()
-            await client.query(prompt)
+            await client.query(queued.prompt)
             result = await session.consume_response()
+
+            # session.interrupt() may cause consume_response to end gracefully
+            # (returning None) rather than raising CancelledError.
+            if session.task_state in (TaskState.INTERRUPTING, TaskState.CANCELLED):
+                session.task_state = TaskState.INTERRUPTED
+                record.status = "interrupted"
+                await self._notify(project_name, "⏸️ 任务已中断")
+                return
 
             session.task_state = TaskState.COMPLETED
             cost = result.get("cost", 0.0) if result else 0.0
@@ -152,28 +327,128 @@ class TaskManager:
             record.session_id = result.get("session_id") if result else record.session_id
             await self._notify(project_name, f"✅ 任务完成 (${cost:.4f})")
         except asyncio.CancelledError:
-            session.task_state = TaskState.CANCELLED
-            record.status = "cancelled"
-            await self._notify(project_name, "⏹️ 任务已取消")
-            raise
+            session.task_state = TaskState.INTERRUPTED
+            record.status = "interrupted"
+            await self._notify(project_name, "⏸️ 任务已中断")
         except Exception as exc:
+            if self._is_context_too_long(exc):
+                await self._handle_context_too_long(project_name, session, queued, exc)
+                return
             session.task_state = TaskState.FAILED
             record.status = "failed"
             record.error = str(exc)[:500]
             await self._notify(project_name, f"❌ 任务失败: {exc}")
-            raise
         finally:
             record.completed_at = datetime.now()
-            self._running_tasks.pop(project_name, None)
-            task_log = self.get_task_log(project_name)
-            if task_log:
-                task_log.append(record)
-            self._update_session(project_name, record)
+            self._persist_task(project_name, record)
             session.project.current_task = None
+
+    # ── Session rotation / context-too-long ────────────────────────
+
+    def _should_rotate(self, project_name: str) -> bool:
+        session_log = self.get_session_log(project_name)
+        if not session_log:
+            return False
+        active = session_log.active()
+        if not active:
+            return False
+        return (
+            len(active.task_ids) >= self._policy.max_tasks_per_session
+            or active.total_cost_usd >= self._policy.max_cost_per_session
+        )
+
+    async def _rotate_session(self, project_name: str) -> None:
+        session = self._sessions.get(project_name)
+        if not session:
+            return
+        self.close_session(project_name)
+        try:
+            await session.disconnect()
+        except RuntimeError:
+            pass
+        session.active_session_id = None
+        session.task_state = TaskState.IDLE
+        await self._notify(project_name, "🔄 会话已自动轮转，开启新对话")
+
+    @staticmethod
+    def _is_context_too_long(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(marker in msg for marker in _CONTEXT_TOO_LONG_MARKERS)
+
+    async def _handle_context_too_long(
+        self,
+        project_name: str,
+        session: ProjectSession,
+        queued: QueuedTask,
+        original_exc: Exception,
+    ) -> None:
+        record = queued.record
+        await self._notify(project_name, "🔄 会话上下文过长，自动切换新会话重试...")
+        await self._rotate_session(project_name)
+
+        try:
+            session.task_state = TaskState.RUNNING
+            client = await session.ensure_connected()
+            await client.query(queued.prompt)
+            result = await session.consume_response()
+
+            session.task_state = TaskState.COMPLETED
+            cost = result.get("cost", 0.0) if result else 0.0
+            record.status = "completed"
+            record.cost_usd = cost
+            record.session_id = result.get("session_id") if result else record.session_id
+            await self._notify(project_name, f"✅ 重试成功 (${cost:.4f})")
+        except Exception as retry_exc:
+            session.task_state = TaskState.FAILED
+            record.status = "failed"
+            record.error = f"重试失败: {retry_exc}"[:500]
+            await self._notify(project_name, f"❌ 重试失败: {retry_exc}")
+
+    # ── Status queries ─────────────────────────────────────────────
+
+    def get_task_status(self, project_name: str) -> str:
+        session = self._sessions.get(project_name)
+        if not session:
+            return "无活跃会话"
+        queue = self._queues.get(project_name)
+        queued_count = queue.qsize() if queue else 0
+        status = session.task_state.value
+        if queued_count:
+            status += f" (队列中 {queued_count} 个待执行)"
+        return status
+
+    def get_all_status(self) -> dict[str, str]:
+        return {name: self.get_task_status(name) for name in self._sessions}
+
+    # ── Shutdown ───────────────────────────────────────────────────
+
+    async def shutdown(self) -> None:
+        workers = list(self._workers.values())
+        for w in workers:
+            w.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+
+        for name in list(self._sessions):
+            self.close_session(name)
+        for session in self._sessions.values():
             try:
                 await session.disconnect()
             except RuntimeError:
                 pass
+
+        self._sessions.clear()
+        self._workers.clear()
+        self._queues.clear()
+        self._current_tasks.clear()
+
+    # ── Helpers ────────────────────────────────────────────────────
+
+    def _persist_task(self, project_name: str, record: TaskRecord) -> None:
+        task_log = self.get_task_log(project_name)
+        if task_log:
+            task_log.append(record)
+        self._update_session(project_name, record)
 
     async def _notify(self, project_name: str, message: str) -> None:
         if self._on_notify:
@@ -182,52 +457,5 @@ class TaskManager:
             except Exception:
                 pass
 
-    async def interrupt_task(self, project_name: str) -> str:
-        """Interrupt the running task for a project"""
-        session = self._sessions.get(project_name)
-        if not session:
-            return f"项目 '{project_name}' 无活跃会话"
-        if session.task_state != TaskState.RUNNING:
-            return f"项目 '{project_name}' 当前无运行中的任务"
-
-        await session.interrupt()
-        task = self._running_tasks.get(project_name)
-        if task:
-            task.cancel()
-        return f"已中断项目 '{project_name}' 的任务"
-
-    def get_task_status(self, project_name: str) -> str:
-        """Get task status for a project"""
-        session = self._sessions.get(project_name)
-        if not session:
-            return "无活跃会话"
-        return session.task_state.value
-
-    def get_all_status(self) -> dict[str, str]:
-        """Get status of all active sessions"""
-        return {name: s.task_state.value for name, s in self._sessions.items()}
-
-    async def shutdown(self) -> None:
-        """Gracefully shutdown all sessions"""
-        tasks = list(self._running_tasks.values())
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        for name in list(self._sessions):
-            self.close_session(name)
-        for session in self._sessions.values():
-            try:
-                await session.disconnect()
-            except RuntimeError:
-                pass
-        self._sessions.clear()
-        self._running_tasks.clear()
-
     def _build_permission_handler(self):
-        """Optional callback for dangerous tools when ApprovalTable is not used.
-
-        Risk assessment and ApprovalTable are wired on ProjectSession directly;
-        this remains for custom on_permission overrides if added later.
-        """
         return None

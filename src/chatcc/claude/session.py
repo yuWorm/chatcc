@@ -27,6 +27,7 @@ class TaskState(Enum):
     INTERRUPTING = "interrupting"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
     FAILED = "failed"
 
 

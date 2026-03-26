@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 
 @dataclass
@@ -13,7 +14,18 @@ class ProjectConfig:
 
 
 @dataclass
+class SessionPolicy:
+    """Controls per-project session lifecycle behaviour."""
+
+    max_tasks_per_session: int = 10
+    max_cost_per_session: float = 2.0
+    idle_disconnect_seconds: int = 300
+
+
+@dataclass
 class TaskRecord:
+    """Status values: queued, running, completed, failed, cancelled, interrupted."""
+
     prompt: str
     status: str = "running"
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
@@ -83,6 +95,31 @@ class SessionRecord:
             total_cost_usd=data.get("total_cost_usd", 0.0),
             status=data.get("status", "active"),
         )
+
+
+@dataclass
+class QueuedTask:
+    """A task waiting in the per-project queue."""
+
+    prompt: str
+    record: TaskRecord
+    priority: int = 0  # 0=normal, -1=immediate (lower value = higher priority)
+
+    def __lt__(self, other: QueuedTask) -> bool:
+        return (self.priority, self.record.submitted_at) < (
+            other.priority,
+            other.record.submitted_at,
+        )
+
+
+@dataclass
+class SubmitResult:
+    """Structured result from TaskManager.submit_task."""
+
+    status: Literal["submitted", "queued", "conflict", "error"]
+    message: str
+    task_id: str | None = None
+    queue_position: int = 0
 
 
 @dataclass

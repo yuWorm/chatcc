@@ -62,6 +62,15 @@ class BudgetConfig:
 
 
 @dataclass
+class SessionPolicyConfig:
+    """Tuning knobs for per-project Claude Code session lifecycle."""
+
+    max_tasks_per_session: int = 10
+    max_cost_per_session: float = 2.0
+    idle_disconnect_seconds: int = 300
+
+
+@dataclass
 class AppConfig:
     data_dir: str = field(default_factory=lambda: str(CHATCC_HOME))
     workspace: str = field(default_factory=lambda: str(Path.home()))
@@ -70,6 +79,7 @@ class AppConfig:
     security: SecurityConfig = field(default_factory=SecurityConfig)
     claude_defaults: ClaudeDefaultsConfig = field(default_factory=ClaudeDefaultsConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
+    session_policy: SessionPolicyConfig = field(default_factory=SessionPolicyConfig)
 
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
@@ -147,6 +157,14 @@ def load_config(path: Path | None = None) -> AppConfig:
         bd = expanded["budget"]
         config.budget = BudgetConfig(
             daily_limit=bd.get("daily_limit"),
+        )
+
+    if "session_policy" in expanded:
+        sp = expanded["session_policy"]
+        config.session_policy = SessionPolicyConfig(
+            max_tasks_per_session=sp.get("max_tasks_per_session", 10),
+            max_cost_per_session=sp.get("max_cost_per_session", 2.0),
+            idle_disconnect_seconds=sp.get("idle_disconnect_seconds", 300),
         )
 
     return config
