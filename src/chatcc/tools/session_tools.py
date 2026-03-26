@@ -6,6 +6,37 @@ from pydantic_ai import Agent, RunContext
 
 from chatcc.claude.session import TaskState
 
+MAX_TEXT_PER_MSG = 300
+MAX_MESSAGES = 20
+
+
+def _extract_text(message: Any) -> str:
+    """Extract displayable text from a SessionMessage.message field."""
+    if isinstance(message, str):
+        return message
+    if isinstance(message, dict):
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_use":
+                        parts.append(f"[tool: {block.get('name', '?')}]")
+                    elif block.get("type") == "tool_result":
+                        parts.append("[tool_result]")
+            return "\n".join(parts) if parts else str(content)[:200]
+    return str(message)[:200]
+
+
+def _truncate(text: str, limit: int = MAX_TEXT_PER_MSG) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
 
 def register_session_tools(agent: Agent) -> None:
     @agent.tool
@@ -264,6 +295,67 @@ def register_session_tools(agent: Agent) -> None:
                 f"    {r.prompt[:100]}\n"
                 f"    花费: {cost}{duration}{sid}{err}"
             )
+
+        return "\n".join(lines)
+
+
+    @agent.tool
+    def get_session_messages(
+        ctx: RunContext[Any],
+        project: str = "",
+        session_id: str = "",
+        count: int = 10,
+    ) -> str:
+        """查询 Claude Code 会话的最近消息内容。
+
+        不指定 session_id 时使用当前活跃会话或最近一个会话。
+        count 控制获取的消息条数（默认 10，最大 20）。
+        """
+        from claude_agent_sdk import list_sessions
+        from claude_agent_sdk import get_session_messages as sdk_get_messages
+
+        pm = ctx.deps.project_manager
+        tm = ctx.deps.task_manager
+        if not pm or not tm:
+            return "错误: 管理器未初始化"
+
+        proj_name = _resolve_project_name(pm, project)
+        if not proj_name:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        proj = pm.get_project(proj_name)
+        if not proj:
+            return f"错误: 项目 '{proj_name}' 不存在"
+
+        count = min(count, MAX_MESSAGES)
+
+        sid = session_id
+        if not sid:
+            session = tm.get_session(proj_name)
+            if session and session.active_session_id:
+                sid = session.active_session_id
+
+        if not sid:
+            sessions = list_sessions(directory=proj.path, limit=1)
+            if sessions:
+                sid = sessions[0].session_id
+
+        if not sid:
+            return f"[{proj_name}] 未找到任何 Claude Code 会话"
+
+        try:
+            messages = sdk_get_messages(sid, directory=proj.path, limit=count)
+        except Exception as e:
+            return f"错误: 获取会话消息失败 — {e}"
+
+        if not messages:
+            return f"[{proj_name}] 会话 {sid[:8]}… 暂无消息"
+
+        lines: list[str] = [f"[{proj_name}] 会话 {sid[:8]}… 最近 {len(messages)} 条消息:"]
+        for msg in messages:
+            role = "👤" if msg.type == "user" else "🤖"
+            text = _truncate(_extract_text(msg.message))
+            lines.append(f"\n{role}  {text}")
 
         return "\n".join(lines)
 

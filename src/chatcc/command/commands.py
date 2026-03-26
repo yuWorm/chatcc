@@ -119,6 +119,21 @@ AUGMENTED_COMMANDS = [
         ),
         category="任务",
     ),
+    CommandSpec(
+        name="messages",
+        description="查看会话最近消息",
+        params=[
+            ParamDef("project", description="项目名称，留空则用默认项目"),
+            ParamDef("count", default="10", description="消息条数 (最大20)"),
+        ],
+        prompt_template=(
+            "[命令] 用户请求查看 Claude Code 会话的最近消息内容。\n"
+            "目标项目: {project}\n"
+            "消息条数: {count}\n"
+            "请调用 get_session_messages 工具获取消息并呈现给用户。"
+        ),
+        category="任务",
+    ),
 ]
 
 HELP_COMMAND = CommandSpec(

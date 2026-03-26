@@ -61,6 +61,7 @@ class ProjectManager:
 
         is_default = len(self._projects) == 0
         resolved_path = self._resolve_project_path(name, path)
+        Path(resolved_path).mkdir(parents=True, exist_ok=True)
 
         config = ProjectConfig()
         if self._claude_defaults:
