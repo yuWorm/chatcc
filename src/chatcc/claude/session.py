@@ -14,6 +14,7 @@ from claude_agent_sdk import (
     TextBlock,
 )
 from claude_agent_sdk.types import HookContext, HookInput, SyncHookJSONOutput
+from loguru import logger
 
 from chatcc.project.models import Project
 
@@ -74,6 +75,7 @@ class ProjectSession:
             hooks=hooks if hooks else None,
             resume=self.active_session_id,
             model=self.project.config.model,
+            stderr=self._stderr_handler,
         )
 
     async def ensure_connected(self) -> ClaudeSDKClient:
@@ -152,6 +154,9 @@ class ProjectSession:
         self.client = None
         if client:
             await client.disconnect()
+
+    def _stderr_handler(self, line: str) -> None:
+        logger.debug("Claude CLI [{}]: {}", self.project.name, line.rstrip())
 
     async def _notification_hook(
         self, input: HookInput, tool_use_id: str | None, context: HookContext
