@@ -108,7 +108,11 @@ class TaskManager:
 
     async def submit_task(self, project_name: str, prompt: str) -> str:
         """Submit a dev task to a project. Returns status message.
-        Same project serialized (rejects if RUNNING), cross-project parallel."""
+        Same project serialized (rejects if RUNNING), cross-project parallel.
+
+        Phase 1 (awaited): connect + send query — failures return error directly.
+        Phase 2 (background): consume response stream — fires as asyncio.Task.
+        """
         session = self.get_session(project_name)
         if not session:
             return f"错误: 项目 '{project_name}' 不存在"
@@ -119,17 +123,37 @@ class TaskManager:
         record = TaskRecord(prompt=prompt, session_id=session.active_session_id)
         session.project.current_task = record
 
-        task = asyncio.create_task(self._run_task(session, prompt, record))
+        # Phase 1: connect + send query (awaited, errors return immediately)
+        try:
+            client = await session.ensure_connected()
+            session.task_state = TaskState.RUNNING
+            await client.query(prompt)
+        except Exception as exc:
+            session.task_state = TaskState.FAILED
+            record.status = "failed"
+            record.error = str(exc)[:500]
+            record.completed_at = datetime.now()
+            session.project.current_task = None
+            task_log = self.get_task_log(project_name)
+            if task_log:
+                task_log.append(record)
+            await session.disconnect()
+            return f"错误: 任务启动失败 — {exc}"
+
+        # Phase 2: consume response stream (background)
+        task = asyncio.create_task(
+            self._consume_task(session, record)
+        )
         self._running_tasks[project_name] = task
         return f"任务已提交到项目 '{project_name}' (#{record.id})"
 
-    async def _run_task(
-        self, session: ProjectSession, prompt: str, record: TaskRecord
+    async def _consume_task(
+        self, session: ProjectSession, record: TaskRecord
     ) -> None:
-        """Execute a task on a session, handle completion/failure"""
+        """Phase 2: consume the response stream after query was sent."""
         project_name = session.project.name
         try:
-            result = await session.send_task(prompt)
+            result = await session.consume_response()
             session.task_state = TaskState.COMPLETED
             cost = result.get("cost", 0.0) if result else 0.0
             record.status = "completed"
@@ -155,8 +179,6 @@ class TaskManager:
                 task_log.append(record)
             self._update_session(project_name, record)
             session.project.current_task = None
-            # Disconnect here so it runs in the same asyncio Task that
-            # called connect(), avoiding anyio cross-task cancel-scope errors.
             await session.disconnect()
 
     async def _notify(self, project_name: str, message: str) -> None:
