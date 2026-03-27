@@ -349,6 +349,10 @@ class FeishuChannel(MessageChannel):
             logger.exception("Error handling Feishu message event")
 
     def _on_card_action(self, data: Any) -> Any:
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            P2CardActionTriggerResponse,
+        )
+
         try:
             action = data.event.action
             value = action.value
@@ -370,6 +374,44 @@ class FeishuChannel(MessageChannel):
                 loop = asyncio.get_event_loop()
                 loop.create_task(self._callback(msg))
 
+            label = self._action_label(command)
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "success", "content": label},
+                "card": {
+                    "type": "raw",
+                    "data": {
+                        "header": {
+                            "title": {"content": "ChatCC", "tag": "plain_text"},
+                        },
+                        "elements": [
+                            {
+                                "tag": "div",
+                                "text": {"content": label, "tag": "lark_md"},
+                            }
+                        ],
+                    },
+                },
+            })
+
         except Exception:
             logger.exception("Error handling Feishu card action")
         return None
+
+    @staticmethod
+    def _action_label(command: str) -> str:
+        _RESOLVE_LABELS = {
+            "queue": "📋 已选择: 排队等待",
+            "interrupt": "⚡ 已选择: 打断执行",
+            "cancel": "❌ 已选择: 取消",
+            "approve": "✅ 已确认",
+            "deny": "❌ 已取消",
+        }
+        if command.startswith("/y"):
+            return "✅ 已确认"
+        if command.startswith("/n"):
+            return "❌ 已拒绝"
+        if command.startswith("/resolve"):
+            parts = command.split()
+            if len(parts) >= 3:
+                return _RESOLVE_LABELS.get(parts[2], f"已选择: {parts[2]}")
+        return "已处理"
