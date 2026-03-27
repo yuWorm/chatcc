@@ -1,12 +1,19 @@
 # 主 Agent 内联确认 — 泛化审批表实现计划
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: ✅ COMPLETED** (2026-03-28)
+
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 让主 Agent 的 pydantic-ai tools（`send_to_claude` conflict、`interrupt_task`）能直接通过 ApprovalTable 发送带按钮的确认卡片，用户点击即完成选择，无需 agent 中间传话。
 
 **Architecture:** 将 `ApprovalTable` 的 `Future[bool]` 泛化为 `Future[str]`，统一处理二选一（approve/deny）和多选（queue/interrupt/cancel）。新增 `/resolve {id} {value}` 拦截命令处理多选项。主 Agent tools 通过 `AgentDeps.approval_table` + `AgentDeps.send_fn` 直接发卡片并 await future。
 
 **Tech Stack:** Python 3.12, asyncio, pydantic-ai, 飞书/Telegram 交互卡片
+
+### Additional work completed beyond original plan:
+- **fix(feishu):** Monkey-patch lark_oapi WS client to handle `MessageType.CARD` frames (SDK bug: drops card callbacks in WebSocket mode)
+- **feat(feishu):** Return toast + updated card on button click to stop Feishu spinner
+- **feat(feishu):** Card cache to preserve original card content in callback replacement cards
 
 ---
 
@@ -49,7 +56,7 @@
 - `approve_oldest` / `deny_oldest` / `approve_all` / `deny_all` — 只处理 choices=None 的二选一项
 - `list_pending()` 返回值不变（PendingApproval 列表），但对象多了 choices 字段
 
-- [ ] **Step 1: 写 test — resolve() 方法**
+- [x] **Step 1: 写 test — resolve() 方法**
 
 ```python
 # tests/test_approval.py — 新增
@@ -76,7 +83,7 @@ async def test_resolve_invalid_id():
     assert not table.resolve(999, "approve")
 ```
 
-- [ ] **Step 2: 写 test — request_choice() + resolve()**
+- [x] **Step 2: 写 test — request_choice() + resolve()**
 
 ```python
 async def test_request_choice_and_resolve():
@@ -111,14 +118,14 @@ async def test_approve_all_skips_choice_items():
     assert table.pending_count == 1  # choice item still pending
 ```
 
-- [ ] **Step 3: 运行测试，确认失败**
+- [x] **Step 3: 运行测试，确认失败**
 
 ```bash
 pytest tests/test_approval.py -v
 ```
 Expected: FAIL — `resolve` 方法不存在, `request_choice` 不存在
 
-- [ ] **Step 4: 实现 ApprovalTable 泛化**
+- [x] **Step 4: 实现 ApprovalTable 泛化**
 
 `src/chatcc/approval/table.py`:
 
@@ -240,7 +247,7 @@ class ApprovalTable:
         return sorted(self._pending.values(), key=lambda x: x.id)
 ```
 
-- [ ] **Step 5: 更新现有测试 — assert result is True → assert result == "approve"**
+- [x] **Step 5: 更新现有测试 — assert result is True → assert result == "approve"**
 
 ```python
 # tests/test_approval.py — 更新现有测试
@@ -290,14 +297,14 @@ async def test_approve_all():
     assert table.pending_count == 0
 ```
 
-- [ ] **Step 6: 运行全部 approval 测试**
+- [x] **Step 6: 运行全部 approval 测试**
 
 ```bash
 pytest tests/test_approval.py -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/chatcc/approval/table.py tests/test_approval.py
@@ -315,7 +322,7 @@ git commit -m "feat(approval): generalize ApprovalTable — Future[str], choices
 - 飞书渲染: 有 style 用 style，无 style 保持原逻辑 (`/y` → primary, 其他 → danger)
 - Telegram/CLI 不受影响（Telegram inline 按钮无 style 概念，CLI 纯文本）
 
-- [ ] **Step 1: 修改 ActionButton 定义**
+- [x] **Step 1: 修改 ActionButton 定义**
 
 `src/chatcc/channel/message.py` — 给 `ActionButton` 加 `style` 字段:
 
@@ -327,7 +334,7 @@ class ActionButton:
     style: str = ""
 ```
 
-- [ ] **Step 2: 修改飞书渲染逻辑**
+- [x] **Step 2: 修改飞书渲染逻辑**
 
 `src/chatcc/channel/feishu.py` render() 中 `ActionGroup` 分支:
 
@@ -352,14 +359,14 @@ case ActionGroup(buttons=buttons):
     elements.append({"tag": "action", "actions": actions})
 ```
 
-- [ ] **Step 3: 运行现有测试确认不破坏**
+- [x] **Step 3: 运行现有测试确认不破坏**
 
 ```bash
 pytest tests/ -v --timeout=10
 ```
 Expected: ALL PASS (style="" 走原有逻辑)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/chatcc/channel/message.py src/chatcc/channel/feishu.py
@@ -383,7 +390,7 @@ git commit -m "feat(channel): add style field to ActionButton for flexible butto
 - `compose_pending_list` — choice 项渲染选项按钮而非 ✅/❌
 - 按钮使用 `/resolve {id} {value}` 命令格式
 
-- [ ] **Step 1: 写 test — compose_conflict_choice**
+- [x] **Step 1: 写 test — compose_conflict_choice**
 
 ```python
 # tests/test_compose.py
@@ -412,7 +419,7 @@ def test_compose_conflict_choice():
     assert "/resolve 5 cancel" in commands
 ```
 
-- [ ] **Step 2: 写 test — compose_confirmation**
+- [x] **Step 2: 写 test — compose_confirmation**
 
 ```python
 def test_compose_confirmation():
@@ -427,7 +434,7 @@ def test_compose_confirmation():
     assert "/resolve 7 deny" in commands
 ```
 
-- [ ] **Step 3: 写 test — compose_pending_list 混合项**
+- [x] **Step 3: 写 test — compose_pending_list 混合项**
 
 ```python
 def test_compose_pending_list_with_choices():
@@ -458,14 +465,14 @@ def test_compose_pending_list_with_choices():
     loop.close()
 ```
 
-- [ ] **Step 4: 运行测试确认失败**
+- [x] **Step 4: 运行测试确认失败**
 
 ```bash
 pytest tests/test_compose.py -v
 ```
 Expected: FAIL — `compose_conflict_choice` 和 `compose_confirmation` 不存在
 
-- [ ] **Step 5: 实现 compose helpers**
+- [x] **Step 5: 实现 compose helpers**
 
 `src/chatcc/channel/compose.py` — 在 `# ── Command responses` 前插入:
 
@@ -509,7 +516,7 @@ def compose_confirmation(
     )
 ```
 
-- [ ] **Step 6: 更新 compose_pending_list 支持 choice 项**
+- [x] **Step 6: 更新 compose_pending_list 支持 choice 项**
 
 ```python
 def compose_pending_list(pending: list[PendingApproval]) -> RichMessage:
@@ -540,7 +547,7 @@ def compose_pending_list(pending: list[PendingApproval]) -> RichMessage:
     return RichMessage(elements=elements)
 ```
 
-- [ ] **Step 7: 更新 `__init__.py` re-export**
+- [x] **Step 7: 更新 `__init__.py` re-export**
 
 `src/chatcc/channel/__init__.py` — 加入:
 
@@ -554,14 +561,14 @@ from chatcc.channel.compose import (
 
 并在 `__all__` 中添加 `"compose_conflict_choice"`, `"compose_confirmation"`。
 
-- [ ] **Step 8: 运行测试**
+- [x] **Step 8: 运行测试**
 
 ```bash
 pytest tests/test_compose.py tests/test_approval.py -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/chatcc/channel/compose.py src/chatcc/channel/__init__.py tests/test_compose.py
@@ -580,7 +587,7 @@ git commit -m "feat(compose): add compose_conflict_choice and compose_confirmati
 - `app.py` `_handle_intercept` 新增 `/resolve` 分支: 调 `approval_table.resolve(id, value)`
 - 校验: value 必须在对应 item 的 choices 中（如果 choices 不为 None），否则拒绝
 
-- [ ] **Step 1: 写 test — /resolve 命令处理**
+- [x] **Step 1: 写 test — /resolve 命令处理**
 
 ```python
 # tests/test_app_integration.py — 新增
@@ -611,14 +618,14 @@ async def test_handle_resolve_invalid_id(app):
     assert "不存在" in outbound.content or "已处理" in outbound.content
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 pytest tests/test_app_integration.py::test_handle_resolve_choice -v
 ```
 Expected: FAIL
 
-- [ ] **Step 3: 注册 `/resolve` 命令**
+- [x] **Step 3: 注册 `/resolve` 命令**
 
 `src/chatcc/command/commands.py` — 在 `INTERCEPT_COMMANDS` 列表中添加:
 
@@ -635,7 +642,7 @@ CommandSpec(
 ),
 ```
 
-- [ ] **Step 4: app.py 添加 `/resolve` 处理**
+- [x] **Step 4: app.py 添加 `/resolve` 处理**
 
 在 `_handle_intercept` 的 `match command:` 中，在 `/pending` 之前添加:
 
@@ -661,7 +668,7 @@ case "/resolve":
 
 **注意:** 访问 `_pending` 是内部实现细节。更好的方式是给 `ApprovalTable` 加一个 `get_pending(id)` 公开方法。
 
-- [ ] **Step 5: ApprovalTable 加 `get_pending()` 方法**
+- [x] **Step 5: ApprovalTable 加 `get_pending()` 方法**
 
 ```python
 # src/chatcc/approval/table.py
@@ -672,14 +679,14 @@ def get_pending(self, approval_id: int) -> PendingApproval | None:
 
 然后 app.py 用 `self.approval_table.get_pending(aid)` 替代 `self.approval_table._pending.get(aid)`。
 
-- [ ] **Step 6: 运行测试**
+- [x] **Step 6: 运行测试**
 
 ```bash
 pytest tests/test_app_integration.py tests/test_approval.py -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/chatcc/command/commands.py src/chatcc/app.py src/chatcc/approval/table.py tests/test_app_integration.py
@@ -700,7 +707,7 @@ git commit -m "feat(commands): add /resolve intercept command for multi-choice a
 - 改为: `result = await future; allowed = (result == "approve")`
 - 一行改动，但关键路径
 
-- [ ] **Step 1: 修改 _permission_handler**
+- [x] **Step 1: 修改 _permission_handler**
 
 `src/chatcc/claude/session.py` 第 229 行:
 
@@ -713,14 +720,14 @@ result = await future
 allowed = result == "approve"
 ```
 
-- [ ] **Step 2: 运行现有测试**
+- [x] **Step 2: 运行现有测试**
 
 ```bash
 pytest tests/ -v --timeout=10
 ```
 Expected: ALL PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/chatcc/claude/session.py
@@ -741,7 +748,7 @@ git commit -m "fix(session): adapt _permission_handler to Future[str] approval r
 - 如果 `approval_table` 或 `send_fn` 不可用，退回原有行为（返回文本让 agent 问用户）
 - `on_conflict` 参数仍然有效 — 如果调用方已经带了策略，直接执行
 
-- [ ] **Step 1: 写 test — send_to_claude conflict 发送卡片并 await**
+- [x] **Step 1: 写 test — send_to_claude conflict 发送卡片并 await**
 
 这个需要在一个集成式 test 中模拟:
 1. 创建一个正在运行任务的 mock TaskManager
@@ -796,14 +803,14 @@ async def test_send_to_claude_conflict_sends_choice_card():
     await resolve_task
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 pytest tests/test_session_tools_confirm.py -v
 ```
 Expected: FAIL — `chatcc.tools._confirm` 不存在
 
-- [ ] **Step 3: 创建 confirm helper 模块**
+- [x] **Step 3: 创建 confirm helper 模块**
 
 提取确认逻辑到一个可测试的 helper 中，避免 pydantic-ai tool 内部代码过于复杂。
 
@@ -867,14 +874,14 @@ async def confirm_action(
     return result == "approve"
 ```
 
-- [ ] **Step 4: 运行 confirm helper 测试**
+- [x] **Step 4: 运行 confirm helper 测试**
 
 ```bash
 pytest tests/test_session_tools_confirm.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 5: 更新 send_to_claude tool**
+- [x] **Step 5: 更新 send_to_claude tool**
 
 `src/chatcc/tools/session_tools.py` — 修改 `send_to_claude`:
 
@@ -945,14 +952,14 @@ async def send_to_claude(
     return result.message
 ```
 
-- [ ] **Step 6: 运行所有测试**
+- [x] **Step 6: 运行所有测试**
 
 ```bash
 pytest tests/ -v --timeout=10
 ```
 Expected: ALL PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/chatcc/tools/_confirm.py src/chatcc/tools/session_tools.py tests/test_session_tools_confirm.py
@@ -965,7 +972,7 @@ git commit -m "feat(tools): inline conflict confirmation for send_to_claude via 
 - Modify: `src/chatcc/tools/session_tools.py`
 - Modify: `tests/test_session_tools_confirm.py`
 
-- [ ] **Step 1: 写 test — confirm_action helper**
+- [x] **Step 1: 写 test — confirm_action helper**
 
 ```python
 # tests/test_session_tools_confirm.py — 新增
@@ -1018,14 +1025,14 @@ async def test_confirm_action_denied():
     await task
 ```
 
-- [ ] **Step 2: 运行测试确认通过** (confirm_action 已在 Step 3 of Task 6 中实现)
+- [x] **Step 2: 运行测试确认通过** (confirm_action 已在 Step 3 of Task 6 中实现)
 
 ```bash
 pytest tests/test_session_tools_confirm.py -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 3: 更新 interrupt_task tool**
+- [x] **Step 3: 更新 interrupt_task tool**
 
 ```python
 @agent.tool
@@ -1059,14 +1066,14 @@ async def interrupt_task(ctx: RunContext[Any], project: str = "") -> str:
     return await tm.interrupt_task(proj_name)
 ```
 
-- [ ] **Step 4: 运行所有测试**
+- [x] **Step 4: 运行所有测试**
 
 ```bash
 pytest tests/ -v --timeout=10
 ```
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/chatcc/tools/session_tools.py tests/test_session_tools_confirm.py
@@ -1087,7 +1094,7 @@ git commit -m "feat(tools): add confirmation step to interrupt_task"
 - 如果 `send_fn` 调用失败，清理 pending 项并退回文本模式
 - 考虑添加超时: 如果用户长时间不响应，auto-cancel (可选，先不实现，留接口)
 
-- [ ] **Step 1: 写 test — send_fn 异常时的回退**
+- [x] **Step 1: 写 test — send_fn 异常时的回退**
 
 ```python
 async def test_confirm_conflict_send_fails_fallback():
@@ -1114,7 +1121,7 @@ async def test_confirm_conflict_send_fails_fallback():
     assert table.pending_count == 0  # cleaned up
 ```
 
-- [ ] **Step 2: 更新 _confirm.py — 异常处理**
+- [x] **Step 2: 更新 _confirm.py — 异常处理**
 
 ```python
 async def confirm_conflict(...) -> str:
@@ -1144,14 +1151,14 @@ async def confirm_action(...) -> bool:
     return result == "approve"
 ```
 
-- [ ] **Step 3: 运行测试**
+- [x] **Step 3: 运行测试**
 
 ```bash
 pytest tests/ -v --timeout=10
 ```
 Expected: ALL PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/chatcc/tools/_confirm.py tests/test_session_tools_confirm.py
@@ -1160,20 +1167,20 @@ git commit -m "fix(confirm): handle send_fn failure with cleanup and fallback"
 
 ### Task 9: 全量回归测试
 
-- [ ] **Step 1: 运行全部测试**
+- [x] **Step 1: 运行全部测试**
 
 ```bash
 pytest tests/ -v --timeout=30
 ```
 Expected: ALL PASS
 
-- [ ] **Step 2: 如有失败，修复**
+- [x] **Step 2: 如有失败，修复**
 
 常见问题:
 - `test_app_integration.py` 中的旧测试可能用 `result is True` / `result is False` 断言 — 需改为 `== "approve"` / `== "deny"`
 - 飞书渲染测试（如有）可能需要更新
 
-- [ ] **Step 3: 最终 commit**
+- [x] **Step 3: 最终 commit**
 
 ```bash
 git add -A

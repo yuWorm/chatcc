@@ -15,6 +15,7 @@ dependencies = [
     "click",
     "questionary",
     "loguru",
+    "python-socks>=2.8.1",
 ]
 
 [project.scripts]

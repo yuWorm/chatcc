@@ -2,12 +2,39 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import lark_oapi as lark
 import lark_oapi.ws.client as _lark_ws_mod
+from lark_oapi.ws.enum import MessageType as _LarkMessageType
 from lark_oapi.ws.exception import ClientException as LarkClientException
+
+
+# ---------------------------------------------------------------------------
+# Monkey-patch: lark_oapi WS client drops MessageType.CARD frames (tested on
+# lark_oapi <=1.4.x).  The SDK's _handle_data_frame returns immediately for
+# CARD, so register_p2_card_action_trigger never fires over WebSocket.
+# We fix this by rewriting the type header to EVENT before the original method
+# runs, which makes the dispatcher route it through do_without_validation
+# and write the callback response back to the server.
+# ---------------------------------------------------------------------------
+_orig_handle_data_frame = _lark_ws_mod.Client._handle_data_frame
+
+
+async def _patched_handle_data_frame(self, frame):  # type: ignore[override]
+    from lark_oapi.ws.const import HEADER_TYPE
+
+    for h in frame.headers:
+        if h.key == HEADER_TYPE and h.value == _LarkMessageType.CARD.value:
+            h.value = _LarkMessageType.EVENT.value
+            break
+
+    return await _orig_handle_data_frame(self, frame)
+
+
+_lark_ws_mod.Client._handle_data_frame = _patched_handle_data_frame
 from lark_oapi.api.im.v1 import (
     CreateMessageReactionRequest,
     CreateMessageReactionRequestBody,
@@ -66,6 +93,8 @@ class FeishuChannel(MessageChannel):
             "allowed_users": allowed_list,
         }
 
+    _CARD_CACHE_MAX = 200
+
     def __init__(self, config: dict[str, Any]):
         self._config = config
         self._app_id: str = config.get("app_id", "")
@@ -74,6 +103,7 @@ class FeishuChannel(MessageChannel):
         self._callback: Callable[[InboundMessage], Awaitable[None]] | None = None
         self._api_client: lark.Client | None = None
         self._ws_client: lark.ws.Client | None = None
+        self._card_cache: OrderedDict[str, dict] = OrderedDict()
 
     async def start(self) -> None:
         if not self._app_id or not self._app_secret:
@@ -147,6 +177,8 @@ class FeishuChannel(MessageChannel):
             logger.error(
                 f"Failed to send message: {response.code} - {response.msg}"
             )
+        elif isinstance(message.content, RichMessage):
+            self._cache_card(response.data.message_id, payload["content"])
 
     def render(self, message: RichMessage) -> dict[str, Any]:
         elements: list[dict[str, Any]] = []
@@ -267,6 +299,18 @@ class FeishuChannel(MessageChannel):
             },
         }
 
+    def _cache_card(self, message_id: str | None, card_content: dict) -> None:
+        if not message_id:
+            return
+        has_actions = any(
+            e.get("tag") == "action" for e in card_content.get("elements", [])
+        )
+        if not has_actions:
+            return
+        self._card_cache[message_id] = card_content
+        while len(self._card_cache) > self._CARD_CACHE_MAX:
+            self._card_cache.popitem(last=False)
+
     def _is_user_allowed(self, open_id: str) -> bool:
         if not self._allowed_users:
             return True
@@ -359,7 +403,9 @@ class FeishuChannel(MessageChannel):
             command = value.get("command", "")
             open_id = data.event.operator.open_id
             chat_id = data.event.context.open_chat_id
-            logger.info("[Feishu] card action from={} chat={} cmd={!r}", open_id, chat_id, command)
+            message_id = data.event.context.open_message_id
+            logger.info("[Feishu] card action from={} chat={} msg={} cmd={!r}",
+                        open_id, chat_id, message_id, command)
 
             if not command or not self._is_user_allowed(open_id):
                 return None
@@ -375,27 +421,45 @@ class FeishuChannel(MessageChannel):
                 loop.create_task(self._callback(msg))
 
             label = self._action_label(command)
+            card_data = self._build_callback_card(message_id, label)
             return P2CardActionTriggerResponse({
                 "toast": {"type": "success", "content": label},
-                "card": {
-                    "type": "raw",
-                    "data": {
-                        "header": {
-                            "title": {"content": "ChatCC", "tag": "plain_text"},
-                        },
-                        "elements": [
-                            {
-                                "tag": "div",
-                                "text": {"content": label, "tag": "lark_md"},
-                            }
-                        ],
-                    },
-                },
+                "card": {"type": "raw", "data": card_data},
             })
 
         except Exception:
             logger.exception("Error handling Feishu card action")
         return None
+
+    def _build_callback_card(self, message_id: str | None, label: str) -> dict:
+        """Build a replacement card that preserves original content."""
+        original = self._card_cache.pop(message_id, None) if message_id else None
+
+        selection_note = {
+            "tag": "note",
+            "elements": [{"tag": "plain_text", "content": label}],
+        }
+
+        if original:
+            elements = [
+                e for e in original.get("elements", [])
+                if e.get("tag") != "action"
+            ]
+            elements.append({"tag": "hr"})
+            elements.append(selection_note)
+            return {
+                "header": original.get("header", {
+                    "title": {"content": "ChatCC", "tag": "plain_text"},
+                }),
+                "elements": elements,
+            }
+
+        return {
+            "header": {"title": {"content": "ChatCC", "tag": "plain_text"}},
+            "elements": [
+                {"tag": "div", "text": {"content": label, "tag": "lark_md"}},
+            ],
+        }
 
     @staticmethod
     def _action_label(command: str) -> str:
