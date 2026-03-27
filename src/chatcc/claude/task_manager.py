@@ -94,6 +94,23 @@ class TaskManager:
                 project_name,
             )
 
+    async def restore_all_sessions(self) -> int:
+        """Proactively restore session IDs for all known projects.
+
+        Returns the number of sessions successfully restored.
+        """
+        restored = 0
+        for project in self._project_manager.list_projects():
+            session = self.get_session(project.name)
+            if session and session.active_session_id:
+                restored += 1
+                logger.info(
+                    "Pre-restored session {} for '{}'",
+                    session.active_session_id[:8],
+                    project.name,
+                )
+        return restored
+
     def get_task_log(self, project_name: str) -> TaskLog | None:
         if project_name in self._task_logs:
             return self._task_logs[project_name]

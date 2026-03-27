@@ -92,6 +92,11 @@ class Application:
         await self.channel.start()
         await self.channel.register_commands(self.command_registry.all_specs)
 
+        if self.config.session_policy.restore_on_startup:
+            count = await self.task_manager.restore_all_sessions()
+            if count:
+                logger.info("Restored {} Claude session(s) on startup", count)
+
         logger.info(f"ChatCC running with channel: {self.config.channel.type}")
 
         try:
