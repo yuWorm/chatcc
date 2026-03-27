@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Awaitable
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import (
@@ -20,6 +22,21 @@ from chatcc.project.models import Project
 
 if TYPE_CHECKING:
     from chatcc.approval.table import ApprovalTable
+
+
+_CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
+
+
+def _load_claude_env(path: Path = _CLAUDE_SETTINGS_PATH) -> dict[str, str]:
+    """Read the ``env`` field from ``~/.claude/settings.json``."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        env = data.get("env")
+        if isinstance(env, dict):
+            return {k: v for k, v in env.items() if isinstance(k, str) and isinstance(v, str)}
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return {}
 
 
 class TaskState(Enum):
@@ -76,6 +93,7 @@ class ProjectSession:
             resume=self.active_session_id,
             model=self.project.config.model,
             stderr=self._stderr_handler,
+            env=_load_claude_env(),
         )
 
     async def ensure_connected(self) -> ClaudeSDKClient:
