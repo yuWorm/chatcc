@@ -79,36 +79,78 @@ class TaskManager:
     ) -> None:
         """Try to restore active_session_id from the session log.
 
-        This allows the SDK ``resume`` parameter to reconnect to the
-        previous Claude Code session after a process restart.
+        Falls back to the SDK ``list_sessions`` when our own log has no
+        active record (e.g. after a clean shutdown that closed all sessions).
+        This allows the ``resume`` parameter to reconnect to the previous
+        Claude Code session after a process restart.
         """
         session_log = self.get_session_log(project_name)
-        if not session_log:
-            return
-        active = session_log.active()
-        if active:
-            session.active_session_id = active.session_id
-            logger.info(
-                "Restored session {} for project '{}'",
-                active.session_id[:8],
-                project_name,
+        if session_log:
+            active = session_log.active()
+            if active:
+                session.active_session_id = active.session_id
+                logger.info(
+                    "Restored session {} for '{}' (source=session_log)",
+                    active.session_id[:12],
+                    project_name,
+                )
+                return
+
+        try:
+            from claude_agent_sdk import list_sessions
+
+            sdk_sessions = list_sessions(
+                directory=session.project.path, limit=1,
             )
+            if sdk_sessions:
+                sid = sdk_sessions[0].session_id
+                session.active_session_id = sid
+                logger.info(
+                    "Restored session {} for '{}' (source=sdk)",
+                    sid[:12],
+                    project_name,
+                )
+                return
+        except Exception as exc:
+            logger.debug(
+                "SDK list_sessions failed for '{}': {}",
+                project_name,
+                exc,
+            )
+
+        logger.debug("No session to restore for '{}'", project_name)
 
     async def restore_all_sessions(self) -> int:
         """Proactively restore session IDs for all known projects.
 
         Returns the number of sessions successfully restored.
         """
+        projects = self._project_manager.list_projects()
+        logger.info(
+            "Restoring sessions on startup ({} project(s))...",
+            len(projects),
+        )
         restored = 0
-        for project in self._project_manager.list_projects():
+        for project in projects:
             session = self.get_session(project.name)
-            if session and session.active_session_id:
-                restored += 1
-                logger.info(
-                    "Pre-restored session {} for '{}'",
-                    session.active_session_id[:8],
+            if not session:
+                logger.warning(
+                    "Skip restore for '{}': failed to create session",
                     project.name,
                 )
+                continue
+            if session.active_session_id:
+                restored += 1
+            else:
+                logger.debug(
+                    "No active session to restore for '{}'",
+                    project.name,
+                )
+        logger.info(
+            "Session restore complete: {}/{} project(s) resumed",
+            restored,
+            len(projects),
+        )
         return restored
 
     def get_task_log(self, project_name: str) -> TaskLog | None:
@@ -529,8 +571,6 @@ class TaskManager:
         if workers:
             await asyncio.gather(*workers, return_exceptions=True)
 
-        for name in list(self._sessions):
-            self.close_session(name)
         for session in self._sessions.values():
             try:
                 await session.disconnect()
