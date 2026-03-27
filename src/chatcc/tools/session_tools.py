@@ -131,7 +131,29 @@ def register_session_tools(agent: Agent) -> None:
                 return result.message
             elif on_conflict == "cancel":
                 return "已取消提交"
-            # No strategy chosen yet — tell the agent to ask the user.
+
+            # Try inline confirmation via interactive card
+            table = ctx.deps.approval_table
+            send_fn = ctx.deps.send_fn
+            if table and send_fn and ctx.deps.chat_id:
+                from chatcc.tools._confirm import confirm_conflict
+
+                choice = await confirm_conflict(
+                    table=table,
+                    send_fn=send_fn,
+                    chat_id=ctx.deps.chat_id,
+                    project=proj_name,
+                    prompt=prompt,
+                )
+                if choice == "queue":
+                    result = await tm.enqueue_task(proj_name, prompt)
+                    return result.message
+                elif choice == "interrupt":
+                    result = await tm.interrupt_and_submit(proj_name, prompt)
+                    return result.message
+                else:
+                    return "已取消提交"
+
             return result.message
 
         return result.message
@@ -190,6 +212,21 @@ def register_session_tools(agent: Agent) -> None:
         proj_name = _resolve_project_name(pm, project)
         if not proj_name:
             return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        table = ctx.deps.approval_table
+        send_fn = ctx.deps.send_fn
+        if table and send_fn and ctx.deps.chat_id:
+            from chatcc.tools._confirm import confirm_action
+
+            approved = await confirm_action(
+                table=table,
+                send_fn=send_fn,
+                chat_id=ctx.deps.chat_id,
+                project=proj_name,
+                description=f"确定要中断项目 [{proj_name}] 当前正在执行的任务？",
+            )
+            if not approved:
+                return "已取消中断操作"
 
         return await tm.interrupt_task(proj_name)
 
