@@ -13,6 +13,8 @@ from chatcc.channel.message import (
 from chatcc.channel.base import MessageChannel
 from chatcc.channel.compose import (
     compose_approval,
+    compose_confirmation,
+    compose_conflict_choice,
     compose_help,
     compose_pending_list,
     compose_retry_failed,
@@ -37,6 +39,8 @@ __all__ = [
     "MessageElement",
     "MessageChannel",
     "compose_approval",
+    "compose_confirmation",
+    "compose_conflict_choice",
     "compose_help",
     "compose_pending_list",
     "compose_retry_failed",

@@ -208,6 +208,31 @@ class Application:
                     else:
                         response = "暂无待确认操作"
 
+            case "/resolve":
+                if len(args) < 2:
+                    response = "用法: /resolve <id> <value>"
+                else:
+                    try:
+                        aid = int(args[0])
+                        value = args[1]
+                        entry = self.approval_table.get_pending(aid)
+                        if entry and entry.choices:
+                            valid_values = [v for _, v in entry.choices]
+                            if value not in valid_values:
+                                response = (
+                                    f"无效选择 '{value}'，可选: {', '.join(valid_values)}"
+                                )
+                            elif self.approval_table.resolve(aid, value):
+                                response = f"已选择: {value} (#{aid})"
+                            else:
+                                response = f"#{aid} 不存在或已处理"
+                        elif self.approval_table.resolve(aid, value):
+                            response = f"已选择: {value} (#{aid})"
+                        else:
+                            response = f"#{aid} 不存在或已处理"
+                    except ValueError:
+                        response = f"无效的 ID: {args[0]}"
+
             case "/pending":
                 pending = self.approval_table.list_pending()
                 rich = compose_pending_list(pending)

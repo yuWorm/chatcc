@@ -21,6 +21,16 @@ INTERCEPT_COMMANDS = [
         category="审批",
     ),
     CommandSpec(
+        name="resolve",
+        description="解决待确认选择",
+        params=[
+            ParamDef("id", required=True, description="待确认项 ID"),
+            ParamDef("value", required=True, description="选择的值"),
+        ],
+        route_type=RouteType.INTERCEPT,
+        category="审批",
+    ),
+    CommandSpec(
         name="pending",
         description="查看待审批列表",
         route_type=RouteType.INTERCEPT,

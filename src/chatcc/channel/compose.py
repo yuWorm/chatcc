@@ -45,6 +45,63 @@ def compose_approval(
     )
 
 
+def compose_conflict_choice(
+    project: str,
+    prompt_preview: str,
+    approval_id: int,
+) -> RichMessage:
+    preview = prompt_preview[:120]
+    return RichMessage(
+        project_tag=project,
+        elements=[
+            TextElement(f"⚠️ 项目 [{project}] 正在执行任务"),
+            TextElement(f"新任务: {preview}"),
+            ActionGroup([
+                ActionButton(
+                    "📋 排队等待",
+                    f"/resolve {approval_id} queue",
+                    style="primary",
+                ),
+                ActionButton(
+                    "⚡ 打断执行",
+                    f"/resolve {approval_id} interrupt",
+                    style="default",
+                ),
+                ActionButton(
+                    "❌ 取消",
+                    f"/resolve {approval_id} cancel",
+                    style="danger",
+                ),
+            ]),
+        ],
+    )
+
+
+def compose_confirmation(
+    project: str,
+    description: str,
+    approval_id: int,
+) -> RichMessage:
+    return RichMessage(
+        project_tag=project,
+        elements=[
+            TextElement(f"⚠️ {description}"),
+            ActionGroup([
+                ActionButton(
+                    "✅ 确认",
+                    f"/resolve {approval_id} approve",
+                    style="primary",
+                ),
+                ActionButton(
+                    "❌ 取消",
+                    f"/resolve {approval_id} deny",
+                    style="danger",
+                ),
+            ]),
+        ],
+    )
+
+
 # ── Task lifecycle ────────────────────────────────────────────────────
 
 
@@ -110,10 +167,17 @@ def compose_pending_list(pending: list[PendingApproval]) -> RichMessage:
         elements.append(
             TextElement(f"#{p.id} [{p.project}] {p.tool_name}: {p.input_summary}")
         )
-        elements.append(ActionGroup([
-            ActionButton("✅ 确认", f"/y {p.id}"),
-            ActionButton("❌ 拒绝", f"/n {p.id}"),
-        ]))
+        if p.is_binary:
+            elements.append(ActionGroup([
+                ActionButton("✅ 确认", f"/y {p.id}"),
+                ActionButton("❌ 拒绝", f"/n {p.id}"),
+            ]))
+        else:
+            buttons = [
+                ActionButton(label, f"/resolve {p.id} {value}")
+                for label, value in (p.choices or [])
+            ]
+            elements.append(ActionGroup(buttons))
         if i < len(pending) - 1:
             elements.append(DividerElement())
 
