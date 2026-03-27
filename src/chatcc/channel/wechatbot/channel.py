@@ -171,7 +171,15 @@ class WeChatChannel(MessageChannel):
         else:
             text = str(message.content)
 
-        for chunk in _chunk_text(text, MAX_TEXT_CHUNK):
+        chunks = _chunk_text(text, MAX_TEXT_CHUNK)
+        logger.info(
+            "[WeChat] send to={} len={} chunks={}",
+            message.chat_id,
+            len(text),
+            len(chunks),
+        )
+
+        for chunk in chunks:
             msg = self._api.build_text_message(message.chat_id, ct, chunk)
             await self._api.send_message(creds.base_url, creds.token, msg)
 
@@ -299,6 +307,7 @@ class WeChatChannel(MessageChannel):
 
         user_id = raw.get("from_user_id", "")
         if self._allowed_users and user_id not in self._allowed_users:
+            logger.debug("[WeChat] ignored message from non-allowed user={}", user_id)
             return None
 
         items = raw.get("item_list", [])
@@ -380,6 +389,13 @@ class WeChatChannel(MessageChannel):
         if not self._callback:
             return
 
+        logger.info(
+            "[WeChat] recv type={} from={} text={!r}",
+            ilink_msg.type,
+            ilink_msg.user_id,
+            ilink_msg.text[:200] if ilink_msg.text else "",
+        )
+
         media_urls = await self._collect_media(ilink_msg)
 
         inbound = InboundMessage(
@@ -389,6 +405,9 @@ class WeChatChannel(MessageChannel):
             media=media_urls or None,
             raw=ilink_msg,
         )
+
+        if media_urls:
+            logger.info("[WeChat] recv media count={} from={}", len(media_urls), ilink_msg.user_id)
 
         try:
             await self._callback(inbound)
