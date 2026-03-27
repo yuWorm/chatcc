@@ -8,6 +8,7 @@ from pydantic_ai.usage import RunUsage
 from chatcc.agent.dispatcher import AgentDeps, Dispatcher
 from chatcc.claude.session import TaskState
 from chatcc.project.manager import ProjectManager
+from chatcc.project.models import SubmitResult
 
 
 @pytest.fixture
@@ -37,7 +38,9 @@ async def test_send_to_claude_valid_project(tmp_path, dispatcher: Dispatcher) ->
     pm = ProjectManager(data_dir=tmp_path)
     pm.create_project("p1", "/tmp/p1")
     tm = MagicMock()
-    tm.submit_task = AsyncMock(return_value="任务已提交到项目 'p1'")
+    tm.submit_task = AsyncMock(return_value=SubmitResult(
+        status="submitted", message="任务已提交到项目 'p1'",
+    ))
     deps = AgentDeps(project_manager=pm, task_manager=tm)
     fn = dispatcher.agent._function_toolset.tools["send_to_claude"].function
     out = await fn(_ctx(deps), "do the thing", "p1")
