@@ -267,6 +267,47 @@ class FeishuChannel(MessageChannel):
             return True
         return open_id in self._allowed_users
 
+    @staticmethod
+    def _extract_text(message: Any) -> str:
+        """Extract readable text from any Feishu message type."""
+        content = json.loads(message.content)
+        msg_type = getattr(message, "message_type", "text")
+
+        if msg_type == "text":
+            return content.get("text", "")
+
+        if msg_type == "interactive":
+            parts: list[str] = []
+            header = content.get("header") or {}
+            title = header.get("title") or {}
+            if title.get("content"):
+                parts.append(title["content"])
+            for el in content.get("elements", []):
+                tag = el.get("tag", "")
+                if tag == "markdown":
+                    parts.append(el.get("content", ""))
+                elif tag == "div":
+                    t = el.get("text") or {}
+                    parts.append(t.get("content", ""))
+                elif tag in ("note", "action"):
+                    for sub in el.get("elements", []):
+                        parts.append(sub.get("content", ""))
+            return "\n".join(p for p in parts if p)
+
+        if msg_type == "post":
+            parts = []
+            for lang_content in content.values():
+                if isinstance(lang_content, dict):
+                    if lang_content.get("title"):
+                        parts.append(lang_content["title"])
+                    for para in lang_content.get("content", []):
+                        for seg in para:
+                            if seg.get("text"):
+                                parts.append(seg["text"])
+            return "\n".join(parts)
+
+        return json.dumps(content, ensure_ascii=False)
+
     def _on_message_event(self, data: Any) -> None:
         try:
             event = data.event
@@ -276,9 +317,9 @@ class FeishuChannel(MessageChannel):
             if not self._is_user_allowed(sender):
                 return
 
-            content_json = json.loads(message.content)
-            text = content_json.get("text", "")
-            logger.info("[Feishu] recv from={} chat={} text={!r}", sender, message.chat_id, text)
+            text = self._extract_text(message)
+            logger.info("[Feishu] recv type={} from={} chat={} text={!r}",
+                        getattr(message, "message_type", "?"), sender, message.chat_id, text)
 
             if self._callback:
                 msg = InboundMessage(

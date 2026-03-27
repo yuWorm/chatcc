@@ -46,7 +46,6 @@ from .ilink import (
     FileContent,
     ILinkApi,
     ImageContent,
-    IncomingMessage as ILinkMessage,
     MediaType,
     MessageItemType,
     MessageType,
@@ -60,6 +59,9 @@ from .ilink import (
     login,
     parse_cdn_media,
 )
+from .ilink import (
+    IncomingMessage as ILinkMessage,
+)
 
 if TYPE_CHECKING:
     from chatcc.setup.ui import SetupUI
@@ -68,7 +70,6 @@ MAX_TEXT_CHUNK = 2000
 
 
 class WeChatChannel(MessageChannel):
-
     @staticmethod
     def interactive_setup(
         ui: SetupUI,
@@ -87,7 +88,9 @@ class WeChatChannel(MessageChannel):
         cred_path = Path(cred_path_str) if cred_path_str else None
 
         default_allowed = ",".join(str(u) for u in ex.get("allowed_users", []))
-        allowed = ui.prompt("允许的用户 ID (逗号分隔, 留空允许所有)", default=default_allowed)
+        allowed = ui.prompt(
+            "允许的用户 ID (逗号分隔, 留空允许所有)", default=default_allowed
+        )
         allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
 
         stored = asyncio.run(load_credentials(cred_path))
@@ -111,8 +114,12 @@ class WeChatChannel(MessageChannel):
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
-        self._cred_path: Path | None = Path(config["cred_path"]) if config.get("cred_path") else None
-        self._allowed_users: list[str] = [str(u) for u in config.get("allowed_users", [])]
+        self._cred_path: Path | None = (
+            Path(config["cred_path"]) if config.get("cred_path") else None
+        )
+        self._allowed_users: list[str] = [
+            str(u) for u in config.get("allowed_users", [])
+        ]
         self._base_url: str = config.get("base_url", DEFAULT_BASE_URL)
 
         self._api = ILinkApi()
@@ -154,7 +161,9 @@ class WeChatChannel(MessageChannel):
         creds = self._require_creds()
         ct = self._context_tokens.get(message.chat_id)
         if not ct:
-            logger.warning("No context_token for chat_id={}, cannot send", message.chat_id)
+            logger.warning(
+                "No context_token for chat_id={}, cannot send", message.chat_id
+            )
             return
 
         if isinstance(message.content, RichMessage):
@@ -178,7 +187,9 @@ class WeChatChannel(MessageChannel):
                 case CodeElement(code=code, language=lang):
                     parts.append(f"```{lang}\n{code}\n```")
                 case ActionGroup(buttons=buttons):
-                    parts.append(" | ".join(f"[{b.label}] {b.command}" for b in buttons))
+                    parts.append(
+                        " | ".join(f"[{b.label}] {b.command}" for b in buttons)
+                    )
                 case ProgressElement(description=desc, project=proj):
                     tag = f"[{proj}] " if proj else ""
                     parts.append(f"⏳ {tag}{desc}")
@@ -196,16 +207,20 @@ class WeChatChannel(MessageChannel):
         target = self._cred_path or DEFAULT_CRED_PATH
         return target.exists()
 
-    async def send_typing(self, chat_id: str) -> None:
+    async def send_typing(self, chat_id: str, message_id: str | None = None) -> None:
         ct = self._context_tokens.get(chat_id)
         if not ct or not self._credentials:
             return
         try:
             creds = self._credentials
-            config = await self._api.get_config(creds.base_url, creds.token, chat_id, ct)
+            config = await self._api.get_config(
+                creds.base_url, creds.token, chat_id, ct
+            )
             ticket = config.get("typing_ticket")
             if ticket:
-                await self._api.send_typing(creds.base_url, creds.token, chat_id, ticket, 1)
+                await self._api.send_typing(
+                    creds.base_url, creds.token, chat_id, ticket, 1
+                )
         except Exception:
             logger.debug("send_typing failed for chat_id={}", chat_id)
 
@@ -217,7 +232,9 @@ class WeChatChannel(MessageChannel):
         while not self._stopped:
             try:
                 creds = self._require_creds()
-                updates = await self._api.get_updates(creds.base_url, creds.token, self._cursor)
+                updates = await self._api.get_updates(
+                    creds.base_url, creds.token, self._cursor
+                )
 
                 buf = updates.get("get_updates_buf")
                 if buf:
@@ -238,8 +255,10 @@ class WeChatChannel(MessageChannel):
                     self._cursor = ""
                     try:
                         creds = await login(
-                            self._api, base_url=self._base_url,
-                            cred_path=self._cred_path, force=True,
+                            self._api,
+                            base_url=self._base_url,
+                            cred_path=self._cred_path,
+                            force=True,
                         )
                         self._credentials = creds
                         self._base_url = creds.base_url
@@ -267,7 +286,9 @@ class WeChatChannel(MessageChannel):
 
     def _remember_context(self, raw: dict[str, Any]) -> None:
         mt = raw.get("message_type")
-        uid = raw.get("from_user_id") if mt == MessageType.USER else raw.get("to_user_id")
+        uid = (
+            raw.get("from_user_id") if mt == MessageType.USER else raw.get("to_user_id")
+        )
         ct = raw.get("context_token")
         if uid and ct:
             self._context_tokens[uid] = ct
@@ -288,19 +309,26 @@ class WeChatChannel(MessageChannel):
             t = item.get("type")
             if t == MessageItemType.IMAGE and item.get("image_item"):
                 ii = item["image_item"]
-                images.append(ImageContent(
-                    media=parse_cdn_media(ii.get("media")),
-                    thumb_media=parse_cdn_media(ii.get("thumb_media")),
-                    aes_key=ii.get("aeskey"), url=ii.get("url"),
-                    width=ii.get("thumb_width"), height=ii.get("thumb_height"),
-                ))
+                images.append(
+                    ImageContent(
+                        media=parse_cdn_media(ii.get("media")),
+                        thumb_media=parse_cdn_media(ii.get("thumb_media")),
+                        aes_key=ii.get("aeskey"),
+                        url=ii.get("url"),
+                        width=ii.get("thumb_width"),
+                        height=ii.get("thumb_height"),
+                    )
+                )
             elif t == MessageItemType.VOICE and item.get("voice_item"):
                 vi = item["voice_item"]
-                voices.append(VoiceContent(
-                    media=parse_cdn_media(vi.get("media")),
-                    text=vi.get("text"), duration_ms=vi.get("playtime"),
-                    encode_type=vi.get("encode_type"),
-                ))
+                voices.append(
+                    VoiceContent(
+                        media=parse_cdn_media(vi.get("media")),
+                        text=vi.get("text"),
+                        duration_ms=vi.get("playtime"),
+                        encode_type=vi.get("encode_type"),
+                    )
+                )
             elif t == MessageItemType.FILE and item.get("file_item"):
                 fi = item["file_item"]
                 size = None
@@ -309,17 +337,23 @@ class WeChatChannel(MessageChannel):
                         size = int(fi["len"])
                     except (ValueError, TypeError):
                         pass
-                files.append(FileContent(
-                    media=parse_cdn_media(fi.get("media")),
-                    file_name=fi.get("file_name"), md5=fi.get("md5"), size=size,
-                ))
+                files.append(
+                    FileContent(
+                        media=parse_cdn_media(fi.get("media")),
+                        file_name=fi.get("file_name"),
+                        md5=fi.get("md5"),
+                        size=size,
+                    )
+                )
             elif t == MessageItemType.VIDEO and item.get("video_item"):
                 vi = item["video_item"]
-                videos.append(VideoContent(
-                    media=parse_cdn_media(vi.get("media")),
-                    thumb_media=parse_cdn_media(vi.get("thumb_media")),
-                    duration_ms=vi.get("play_length"),
-                ))
+                videos.append(
+                    VideoContent(
+                        media=parse_cdn_media(vi.get("media")),
+                        thumb_media=parse_cdn_media(vi.get("thumb_media")),
+                        duration_ms=vi.get("play_length"),
+                    )
+                )
             if item.get("ref_msg"):
                 ref = item["ref_msg"]
                 qt = ref.get("message_item", {}).get("text_item", {}).get("text")
@@ -330,10 +364,15 @@ class WeChatChannel(MessageChannel):
             text=extract_text(items),
             type=detect_type(items),
             timestamp=datetime.fromtimestamp(
-                raw.get("create_time_ms", 0) / 1000, tz=timezone.utc,
+                raw.get("create_time_ms", 0) / 1000,
+                tz=timezone.utc,
             ),
-            images=images, voices=voices, files=files, videos=videos,
-            quoted_message=quoted, raw=raw,
+            images=images,
+            voices=voices,
+            files=files,
+            videos=videos,
+            quoted_message=quoted,
+            raw=raw,
             _context_token=raw.get("context_token", ""),
         )
 
@@ -369,7 +408,9 @@ class WeChatChannel(MessageChannel):
             if img.url:
                 refs.append(img.url)
             elif img.media:
-                path = await self._download_to_temp(img.media, img.aes_key, suffix=".jpg")
+                path = await self._download_to_temp(
+                    img.media, img.aes_key, suffix=".jpg"
+                )
                 if path:
                     refs.append(path)
 
@@ -391,7 +432,11 @@ class WeChatChannel(MessageChannel):
         return refs
 
     async def _download_to_temp(
-        self, media: CDNMedia, aeskey_override: str | None = None, *, suffix: str = "",
+        self,
+        media: CDNMedia,
+        aeskey_override: str | None = None,
+        *,
+        suffix: str = "",
     ) -> str | None:
         """Download a CDN media file, decrypt, and save to a temp file. Returns file path."""
         import tempfile
@@ -403,12 +448,16 @@ class WeChatChannel(MessageChannel):
             os.close(fd)
             return path
         except Exception:
-            logger.debug("Failed to download CDN media: {}", media.encrypt_query_param[:40])
+            logger.debug(
+                "Failed to download CDN media: {}", media.encrypt_query_param[:40]
+            )
             return None
 
     # ── CDN download ─────────────────────────────────────────────────
 
-    async def download_media(self, media: CDNMedia, aeskey_override: str | None = None) -> bytes:
+    async def download_media(
+        self, media: CDNMedia, aeskey_override: str | None = None
+    ) -> bytes:
         url = f"{CDN_BASE_URL}/download?encrypted_query_param={quote(media.encrypt_query_param)}"
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -427,7 +476,10 @@ class WeChatChannel(MessageChannel):
     # ── CDN upload ───────────────────────────────────────────────────
 
     async def upload_media(
-        self, data: bytes, user_id: str, media_type: int,
+        self,
+        data: bytes,
+        user_id: str,
+        media_type: int,
     ) -> tuple[CDNMedia, int]:
         """Upload to CDN. Returns (CDNMedia, encrypted_file_size)."""
         creds = self._require_creds()
@@ -437,7 +489,8 @@ class WeChatChannel(MessageChannel):
         raw_md5 = hashlib.md5(data).hexdigest()
 
         upload_info = await self._api.get_upload_url(
-            creds.base_url, creds.token,
+            creds.base_url,
+            creds.token,
             {
                 "filekey": filekey,
                 "media_type": media_type,
@@ -463,7 +516,8 @@ class WeChatChannel(MessageChannel):
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
-                upload_url, data=ciphertext,
+                upload_url,
+                data=ciphertext,
                 headers={"Content-Type": "application/octet-stream"},
             ) as resp:
                 if resp.status >= 400:
@@ -471,7 +525,9 @@ class WeChatChannel(MessageChannel):
                     raise CryptoError(f"CDN upload failed: {err_msg}")
                 encrypt_query_param = resp.headers.get("x-encrypted-param")
                 if not encrypt_query_param:
-                    raise CryptoError("CDN upload succeeded but x-encrypted-param header missing")
+                    raise CryptoError(
+                        "CDN upload succeeded but x-encrypted-param header missing"
+                    )
 
         cdn_media = CDNMedia(
             encrypt_query_param=encrypt_query_param,
@@ -539,13 +595,14 @@ def _print_qr_terminal(data: str) -> None:
 
 async def _qr_login_sync(ui: "SetupUI", cred_path: Path | None) -> Credentials:
     """Run QR login with terminal QR display. Called via asyncio.run()."""
+    from datetime import datetime, timezone
+
     from .ilink import (
         QR_POLL_INTERVAL,
         AuthError,
         ILinkApi,
         save_credentials,
     )
-    from datetime import datetime, timezone
 
     api = ILinkApi()
     base_url = DEFAULT_BASE_URL

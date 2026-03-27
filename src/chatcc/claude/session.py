@@ -156,7 +156,9 @@ class ProjectSession:
             await client.disconnect()
 
     def _stderr_handler(self, line: str) -> None:
-        logger.debug("Claude CLI [{}]: {}", self.project.name, line.rstrip())
+        line = line.rstrip()
+        if line:
+            logger.warning("Claude CLI [{}]: {}", self.project.name, line)
 
     async def _notification_hook(
         self, input: HookInput, tool_use_id: str | None, context: HookContext
