@@ -304,6 +304,95 @@ def test_get_session_cached_skips_restore(mock_pm):
     assert same_session.active_session_id is None
 
 
+# ── Restored session → send task (end-to-end) ─────────────────────
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_restored_session_sends_task_with_resume(MockSession, mock_pm):
+    """End-to-end: restore session_id from JSONL → submit task →
+    ensure_connected builds options with resume → query succeeds."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="restored-sess-id",
+        project_name="proj-a",
+        task_ids=["old-task"],
+        total_cost_usd=0.05,
+        status="active",
+    ))
+
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock(
+        return_value={"session_id": "restored-sess-id", "cost": 0.03}
+    )
+    MockSession.return_value = mock_session
+
+    notified: list[str] = []
+
+    async def on_notify(_proj: str, msg: str) -> None:
+        notified.append(msg)
+
+    tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
+
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id == "restored-sess-id"
+
+    await tm.submit_task("proj-a", "continue previous work")
+    await asyncio.sleep(0.3)
+
+    mock_client.query.assert_awaited_once_with("continue previous work")
+    mock_session.consume_response.assert_awaited_once()
+    assert mock_session.task_state == TaskState.COMPLETED
+    assert any("任务完成" in n for n in notified)
+
+    task_log = tm.get_task_log("proj-a")
+    records = task_log.latest(1) if task_log else []
+    assert len(records) == 1
+    assert records[0].status == "completed"
+    assert records[0].session_id == "restored-sess-id"
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_fresh_session_no_resume(MockSession, mock_pm):
+    """When no session is restored, ensure_connected is called with
+    active_session_id=None (no resume parameter)."""
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock(
+        return_value={"session_id": "brand-new-sess", "cost": 0.01}
+    )
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    session = tm.get_session("proj-a")
+    assert session is not None
+    assert session.active_session_id is None
+
+    await tm.submit_task("proj-a", "start fresh")
+    await asyncio.sleep(0.3)
+
+    mock_client.query.assert_awaited_once_with("start fresh")
+    assert mock_session.task_state == TaskState.COMPLETED
+
+
 # ── ProcessError recovery ─────────────────────────────────────────
 
 
