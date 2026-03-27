@@ -83,7 +83,7 @@ class ApprovalTable:
             if value not in ("approve", "deny"):
                 return False
         else:
-            allowed_values = {c[0] for c in (entry.choices or ())}
+            allowed_values = {v for _, v in (entry.choices or ())}
             if value not in allowed_values:
                 return False
         del self._pending[approval_id]

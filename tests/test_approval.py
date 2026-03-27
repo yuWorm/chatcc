@@ -79,7 +79,7 @@ async def test_resolve_binary_invalid_value():
 
 async def test_resolve_choice():
     table = ApprovalTable()
-    choices = [("queue", "Queue"), ("interrupt", "Interrupt")]
+    choices = [("排队", "queue"), ("打断", "interrupt")]
     future, aid = table.request_choice("p", "Task", "conflict", choices)
     assert table.get_pending(aid) is not None
     assert table.get_pending(aid).choices == choices
@@ -91,7 +91,7 @@ async def test_resolve_choice():
 async def test_resolve_choice_invalid_value():
     table = ApprovalTable()
     future, aid = table.request_choice(
-        "p", "Task", "c", [("a", "A"), ("b", "B")],
+        "p", "Task", "c", [("Label A", "a"), ("Label B", "b")],
     )
     assert table.resolve(aid, "c") is False
     assert not future.done()
@@ -107,7 +107,7 @@ async def test_resolve_unknown_id():
 async def test_request_choice_is_not_binary():
     table = ApprovalTable()
     f_choice, choice_id = table.request_choice(
-        "p", "T", "msg", [("x", "X")],
+        "p", "T", "msg", [("Label X", "x")],
     )
     f_bin, bin_id = table.request_approval("p", "Bash", "cmd")
     assert table.pending_count == 2
@@ -122,7 +122,7 @@ async def test_request_choice_is_not_binary():
 
 async def test_approve_oldest_skips_choice_only_queue():
     table = ApprovalTable()
-    fc, _ = table.request_choice("p", "T", "c", [("q", "Q")])
+    fc, _ = table.request_choice("p", "T", "c", [("Label Q", "q")])
     fb, _ = table.request_approval("p", "Bash", "b")
     table.approve_oldest()
     assert await asyncio.wait_for(fb, timeout=1.0) == "approve"
