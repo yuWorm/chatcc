@@ -29,19 +29,21 @@ class ApprovalTable:
         project: str,
         tool_name: str,
         input_summary: str,
-    ) -> asyncio.Future[bool]:
+    ) -> tuple[asyncio.Future[bool], int]:
+        """Register a pending approval and return ``(future, approval_id)``."""
         loop = asyncio.get_event_loop()
         future = loop.create_future()
+        approval_id = self._next_id
         entry = PendingApproval(
-            id=self._next_id,
+            id=approval_id,
             project=project,
             tool_name=tool_name,
             input_summary=input_summary,
             future=future,
         )
-        self._pending[self._next_id] = entry
+        self._pending[approval_id] = entry
         self._next_id += 1
-        return future
+        return future, approval_id
 
     def approve(self, approval_id: int) -> bool:
         entry = self._pending.pop(approval_id, None)

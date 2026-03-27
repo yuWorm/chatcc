@@ -89,6 +89,7 @@ class FeishuChannel(MessageChannel):
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_message_event)
+            .register_p2_card_action_trigger(self._on_card_action)
             .build()
         )
 
@@ -296,14 +297,22 @@ class FeishuChannel(MessageChannel):
 
         if msg_type == "post":
             parts = []
-            for lang_content in content.values():
-                if isinstance(lang_content, dict):
-                    if lang_content.get("title"):
-                        parts.append(lang_content["title"])
-                    for para in lang_content.get("content", []):
-                        for seg in para:
-                            if seg.get("text"):
-                                parts.append(seg["text"])
+
+            def _extract_post_body(body: dict) -> None:
+                if body.get("title"):
+                    parts.append(body["title"])
+                for para in body.get("content", []):
+                    for seg in para:
+                        if seg.get("text"):
+                            parts.append(seg["text"])
+
+            if "content" in content and isinstance(content["content"], list):
+                _extract_post_body(content)
+            else:
+                for lang_body in content.values():
+                    if isinstance(lang_body, dict):
+                        _extract_post_body(lang_body)
+
             return "\n".join(parts)
 
         return json.dumps(content, ensure_ascii=False)

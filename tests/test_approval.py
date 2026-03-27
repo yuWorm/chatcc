@@ -5,11 +5,12 @@ from chatcc.approval.table import ApprovalTable
 
 async def test_request_and_approve():
     table = ApprovalTable()
-    future = table.request_approval(
+    future, approval_id = table.request_approval(
         project="myapp",
         tool_name="Bash",
         input_summary="rm -rf dist/",
     )
+    assert approval_id == 1
     assert table.pending_count == 1
     table.approve(1)
     result = await asyncio.wait_for(future, timeout=1.0)
@@ -19,11 +20,12 @@ async def test_request_and_approve():
 
 async def test_request_and_deny():
     table = ApprovalTable()
-    future = table.request_approval(
+    future, approval_id = table.request_approval(
         project="myapp",
         tool_name="Bash",
         input_summary="sudo rm /",
     )
+    assert approval_id == 1
     table.deny(1)
     result = await asyncio.wait_for(future, timeout=1.0)
     assert result is False
@@ -31,8 +33,8 @@ async def test_request_and_deny():
 
 async def test_approve_oldest():
     table = ApprovalTable()
-    f1 = table.request_approval("proj-a", "Bash", "cmd1")
-    f2 = table.request_approval("proj-b", "Bash", "cmd2")
+    f1, _ = table.request_approval("proj-a", "Bash", "cmd1")
+    f2, _ = table.request_approval("proj-b", "Bash", "cmd2")
     assert table.pending_count == 2
 
     table.approve_oldest()
@@ -43,8 +45,8 @@ async def test_approve_oldest():
 
 async def test_approve_all():
     table = ApprovalTable()
-    f1 = table.request_approval("a", "Bash", "c1")
-    f2 = table.request_approval("b", "Bash", "c2")
+    f1, _ = table.request_approval("a", "Bash", "c1")
+    f2, _ = table.request_approval("b", "Bash", "c2")
     table.approve_all()
     assert await asyncio.wait_for(f1, timeout=1.0) is True
     assert await asyncio.wait_for(f2, timeout=1.0) is True

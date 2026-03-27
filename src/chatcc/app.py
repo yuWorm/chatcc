@@ -9,7 +9,8 @@ from chatcc.agent.provider import build_model_from_config
 from chatcc.approval.table import ApprovalTable
 from chatcc.channel.base import MessageChannel
 from chatcc.channel.factory import create_channel
-from chatcc.channel.message import InboundMessage, OutboundMessage
+from chatcc.channel.compose import compose_help, compose_pending_list, parse_markdown
+from chatcc.channel.message import InboundMessage, OutboundMessage, RichMessage
 from chatcc.claude.task_manager import TaskManager
 from chatcc.command.commands import get_builtin_commands
 from chatcc.command.registry import CommandRegistry
@@ -70,13 +71,14 @@ class Application:
         self._running = False
         self._last_chat_id: str | None = None
 
-    async def _on_claude_notify(self, project_name: str, message: str) -> None:
+    async def _on_claude_notify(self, project_name: str, message: str | RichMessage) -> None:
         if self.channel and self._last_chat_id:
+            if isinstance(message, RichMessage):
+                content: str | RichMessage = message
+            else:
+                content = f"[{project_name}] {message}"
             await self.channel.send(
-                OutboundMessage(
-                    chat_id=self._last_chat_id,
-                    content=f"[{project_name}] {message}",
-                )
+                OutboundMessage(chat_id=self._last_chat_id, content=content)
             )
 
     async def start(self):
@@ -208,18 +210,18 @@ class Application:
 
             case "/pending":
                 pending = self.approval_table.list_pending()
-                if not pending:
-                    response = "暂无待确认操作"
-                else:
-                    lines = [f"待确认操作 ({len(pending)} 条):"]
-                    for p in pending:
-                        lines.append(
-                            f"  #{p.id} [{p.project}] {p.tool_name}: {p.input_summary}"
-                        )
-                    response = "\n".join(lines)
+                rich = compose_pending_list(pending)
+                await self.channel.send(
+                    OutboundMessage(chat_id=message.chat_id, content=rich)
+                )
+                return
 
             case "/help":
-                response = self.command_registry.help_text()
+                rich = compose_help(self.command_registry.help_text())
+                await self.channel.send(
+                    OutboundMessage(chat_id=message.chat_id, content=rich)
+                )
+                return
 
             case _:
                 response = f"未知命令: {command}"
@@ -273,8 +275,9 @@ class Application:
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
+            content = self._format_agent_reply(response_text, project)
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response_text)
+                OutboundMessage(chat_id=message.chat_id, content=content)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
@@ -326,8 +329,9 @@ class Application:
             if self.summary_manager.should_compress():
                 asyncio.create_task(self._compress_history())
 
+            content = self._format_agent_reply(response_text, project)
             await self.channel.send(
-                OutboundMessage(chat_id=message.chat_id, content=response_text)
+                OutboundMessage(chat_id=message.chat_id, content=content)
             )
         except Exception as e:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
@@ -342,6 +346,13 @@ class Application:
             )
 
     # ── Helpers ──────────────────────────────────────────────────────
+
+    def _format_agent_reply(
+        self, text: str, project: str | None = None
+    ) -> str | RichMessage:
+        if self.config.rich_message.parse_agent_markdown:
+            return parse_markdown(text, project=project)
+        return text
 
     async def _compress_history(self) -> None:
         try:

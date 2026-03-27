@@ -72,6 +72,12 @@ class SessionPolicyConfig:
 
 
 @dataclass
+class RichMessageConfig:
+    """Controls rich-message formatting for outbound notifications."""
+
+    parse_agent_markdown: bool = False
+
+@dataclass
 class AppConfig:
     data_dir: str = field(default_factory=lambda: str(CHATCC_HOME))
     workspace: str = field(default_factory=lambda: str(Path.home()))
@@ -81,6 +87,7 @@ class AppConfig:
     claude_defaults: ClaudeDefaultsConfig = field(default_factory=ClaudeDefaultsConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     session_policy: SessionPolicyConfig = field(default_factory=SessionPolicyConfig)
+    rich_message: RichMessageConfig = field(default_factory=RichMessageConfig)
 
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
@@ -167,6 +174,12 @@ def load_config(path: Path | None = None) -> AppConfig:
             max_cost_per_session=sp.get("max_cost_per_session", 2.0),
             idle_disconnect_seconds=sp.get("idle_disconnect_seconds", 300),
             restore_on_startup=sp.get("restore_on_startup", True),
+        )
+
+    if "rich_message" in expanded:
+        rm = expanded["rich_message"]
+        config.rich_message = RichMessageConfig(
+            parse_agent_markdown=rm.get("parse_agent_markdown", False),
         )
 
     return config

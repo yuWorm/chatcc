@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from chatcc.app import Application
-from chatcc.channel.message import InboundMessage, OutboundMessage
+from chatcc.channel.message import InboundMessage, OutboundMessage, RichMessage, TextElement
 from chatcc.config import AppConfig
 
 
@@ -55,7 +55,11 @@ async def test_handle_pending_empty(app):
     await app._handle_command("/pending", [], msg)
 
     outbound = app.channel.send.await_args.args[0]
-    assert outbound.content == "暂无待确认操作"
+    assert isinstance(outbound.content, RichMessage)
+    assert any(
+        isinstance(el, TextElement) and "暂无待确认操作" in el.content
+        for el in outbound.content.elements
+    )
 
 
 async def test_handle_status(app):

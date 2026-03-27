@@ -336,9 +336,9 @@ async def test_restored_session_sends_task_with_resume(MockSession, mock_pm):
     )
     MockSession.return_value = mock_session
 
-    notified: list[str] = []
+    notified: list[object] = []
 
-    async def on_notify(_proj: str, msg: str) -> None:
+    async def on_notify(_proj: str, msg: object) -> None:
         notified.append(msg)
 
     tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
@@ -353,7 +353,7 @@ async def test_restored_session_sends_task_with_resume(MockSession, mock_pm):
     mock_client.query.assert_awaited_once_with("continue previous work")
     mock_session.consume_response.assert_awaited_once()
     assert mock_session.task_state == TaskState.COMPLETED
-    assert any("任务完成" in n for n in notified)
+    assert any("任务完成" in str(n) for n in notified)
 
     task_log = tm.get_task_log("proj-a")
     records = task_log.latest(1) if task_log else []
@@ -430,9 +430,9 @@ async def test_process_error_retries_with_fresh_session(MockSession, mock_pm):
     )
     MockSession.return_value = mock_session
 
-    notified: list[str] = []
+    notified: list[object] = []
 
-    async def on_notify(_proj: str, msg: str) -> None:
+    async def on_notify(_proj: str, msg: object) -> None:
         notified.append(msg)
 
     tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
@@ -440,7 +440,7 @@ async def test_process_error_retries_with_fresh_session(MockSession, mock_pm):
     await asyncio.sleep(0.3)
 
     assert mock_session.task_state == TaskState.COMPLETED
-    assert any("重试成功" in n for n in notified)
+    assert any("重试成功" in str(n) for n in notified)
     assert mock_session.disconnect.await_count >= 1
 
 
@@ -462,9 +462,9 @@ async def test_process_error_retry_also_fails(MockSession, mock_pm):
     mock_session.ensure_connected = AsyncMock(return_value=mock_client)
     MockSession.return_value = mock_session
 
-    notified: list[str] = []
+    notified: list[object] = []
 
-    async def on_notify(_proj: str, msg: str) -> None:
+    async def on_notify(_proj: str, msg: object) -> None:
         notified.append(msg)
 
     tm = TaskManager(project_manager=mock_pm, on_notify=on_notify)
@@ -472,4 +472,4 @@ async def test_process_error_retry_also_fails(MockSession, mock_pm):
     await asyncio.sleep(0.3)
 
     assert mock_session.task_state == TaskState.FAILED
-    assert any("重试失败" in n for n in notified)
+    assert any("重试失败" in str(n) for n in notified)

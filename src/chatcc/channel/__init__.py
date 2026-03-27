@@ -11,6 +11,18 @@ from chatcc.channel.message import (
     MessageElement,
 )
 from chatcc.channel.base import MessageChannel
+from chatcc.channel.compose import (
+    compose_approval,
+    compose_help,
+    compose_pending_list,
+    compose_retry_failed,
+    compose_retry_success,
+    compose_session_rotated,
+    compose_task_completed,
+    compose_task_failed,
+    compose_task_interrupted,
+    parse_markdown,
+)
 
 __all__ = [
     "InboundMessage",
@@ -24,4 +36,14 @@ __all__ = [
     "DividerElement",
     "MessageElement",
     "MessageChannel",
+    "compose_approval",
+    "compose_help",
+    "compose_pending_list",
+    "compose_retry_failed",
+    "compose_retry_success",
+    "compose_session_rotated",
+    "compose_task_completed",
+    "compose_task_failed",
+    "compose_task_interrupted",
+    "parse_markdown",
 ]

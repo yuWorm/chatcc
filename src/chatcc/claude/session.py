@@ -18,6 +18,8 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import HookContext, HookInput, SyncHookJSONOutput
 from loguru import logger
 
+from chatcc.channel.compose import compose_approval
+from chatcc.channel.message import RichMessage
 from chatcc.project.models import Project
 
 if TYPE_CHECKING:
@@ -63,7 +65,7 @@ class ProjectSession:
     def __init__(
         self,
         project: Project,
-        on_notification: Callable[[str, str], Awaitable[None]] | None = None,
+        on_notification: Callable[[str, str | RichMessage], Awaitable[None]] | None = None,
         on_permission: Callable[[str, dict], Awaitable[bool]] | None = None,
         approval_table: ApprovalTable | None = None,
         dangerous_patterns: dict[str, list[str]] | None = None,
@@ -217,13 +219,13 @@ class ProjectSession:
         # risk == "dangerous"
         if self._approval_table and self._on_notification:
             summary = _summarize_tool_input(tool_name, input_data)
-            future = self._approval_table.request_approval(
+            future, approval_id = self._approval_table.request_approval(
                 self.project.name, tool_name, summary
             )
-            await self._on_notification(
-                self.project.name,
-                f"⚠️ 危险操作待确认:\n{tool_name}: {summary}\n回复 /y 确认 或 /n 拒绝",
+            msg = compose_approval(
+                self.project.name, tool_name, summary, approval_id
             )
+            await self._on_notification(self.project.name, msg)
             allowed = await future
             if allowed:
                 return PermissionResultAllow(updated_input=input_data)

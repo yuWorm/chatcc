@@ -8,6 +8,15 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from chatcc.channel.compose import (
+    compose_retry_failed,
+    compose_retry_success,
+    compose_session_rotated,
+    compose_task_completed,
+    compose_task_failed,
+    compose_task_interrupted,
+)
+from chatcc.channel.message import RichMessage
 from chatcc.claude.session import ProjectSession, TaskState
 from chatcc.project.models import (
     QueuedTask,
@@ -34,13 +43,13 @@ class TaskManager:
         self,
         project_manager: ProjectManager,
         approval_table: ApprovalTable | None = None,
-        on_notify: Callable[[str, str], Awaitable[None]] | None = None,
+        on_notify: Callable[[str, str | RichMessage], Awaitable[None]] | None = None,
         dangerous_patterns: dict[str, list[str]] | None = None,
         session_policy: SessionPolicyConfig | None = None,
     ):
         self._project_manager = project_manager
         self._approval_table = approval_table
-        self._on_notify = on_notify
+        self._on_notify: Callable[[str, str | RichMessage], Awaitable[None]] | None = on_notify
         self._dangerous_patterns = dangerous_patterns
 
         if session_policy is None:
@@ -398,7 +407,7 @@ class TaskManager:
             if session.task_state in (TaskState.INTERRUPTING, TaskState.CANCELLED):
                 session.task_state = TaskState.INTERRUPTED
                 record.status = "interrupted"
-                await self._notify(project_name, "⏸️ 任务已中断")
+                await self._notify(project_name, compose_task_interrupted(project_name))
                 return
 
             session.task_state = TaskState.COMPLETED
@@ -406,11 +415,11 @@ class TaskManager:
             record.status = "completed"
             record.cost_usd = cost
             record.session_id = result.get("session_id") if result else record.session_id
-            await self._notify(project_name, f"✅ 任务完成 (${cost:.4f})")
+            await self._notify(project_name, compose_task_completed(project_name, cost))
         except asyncio.CancelledError:
             session.task_state = TaskState.INTERRUPTED
             record.status = "interrupted"
-            await self._notify(project_name, "⏸️ 任务已中断")
+            await self._notify(project_name, compose_task_interrupted(project_name))
         except Exception as exc:
             if self._is_context_too_long(exc):
                 await self._handle_context_too_long(project_name, session, queued, exc)
@@ -421,7 +430,7 @@ class TaskManager:
             session.task_state = TaskState.FAILED
             record.status = "failed"
             record.error = str(exc)[:500]
-            await self._notify(project_name, f"❌ 任务失败: {exc}")
+            await self._notify(project_name, compose_task_failed(project_name, str(exc)))
         finally:
             record.completed_at = datetime.now()
             self._persist_task(project_name, record)
@@ -452,7 +461,7 @@ class TaskManager:
             pass
         session.active_session_id = None
         session.task_state = TaskState.IDLE
-        await self._notify(project_name, "🔄 会话已自动轮转，开启新对话")
+        await self._notify(project_name, compose_session_rotated(project_name, "idle"))
 
     @staticmethod
     def _is_process_error(exc: Exception) -> bool:
@@ -478,7 +487,7 @@ class TaskManager:
         original_exc: Exception,
     ) -> None:
         record = queued.record
-        await self._notify(project_name, "🔄 会话上下文过长，自动切换新会话重试...")
+        await self._notify(project_name, compose_session_rotated(project_name, "context_too_long"))
         await self._rotate_session(project_name)
 
         try:
@@ -492,12 +501,12 @@ class TaskManager:
             record.status = "completed"
             record.cost_usd = cost
             record.session_id = result.get("session_id") if result else record.session_id
-            await self._notify(project_name, f"✅ 重试成功 (${cost:.4f})")
+            await self._notify(project_name, compose_retry_success(project_name, cost))
         except Exception as retry_exc:
             session.task_state = TaskState.FAILED
             record.status = "failed"
             record.error = f"重试失败: {retry_exc}"[:500]
-            await self._notify(project_name, f"❌ 重试失败: {retry_exc}")
+            await self._notify(project_name, compose_retry_failed(project_name, str(retry_exc)))
 
     async def _handle_process_error(
         self,
@@ -517,7 +526,7 @@ class TaskManager:
         )
         await self._notify(
             project_name,
-            "🔄 Claude Code 进程异常，正在重置连接重试...",
+            compose_session_rotated(project_name, "process_error"),
         )
 
         self.close_session(project_name)
@@ -539,12 +548,12 @@ class TaskManager:
             record.status = "completed"
             record.cost_usd = cost
             record.session_id = result.get("session_id") if result else record.session_id
-            await self._notify(project_name, f"✅ 重试成功 (${cost:.4f})")
+            await self._notify(project_name, compose_retry_success(project_name, cost))
         except Exception as retry_exc:
             session.task_state = TaskState.FAILED
             record.status = "failed"
             record.error = f"进程异常重试失败: {retry_exc}"[:500]
-            await self._notify(project_name, f"❌ 重试失败: {retry_exc}")
+            await self._notify(project_name, compose_retry_failed(project_name, str(retry_exc)))
 
     # ── Status queries ─────────────────────────────────────────────
 
@@ -590,7 +599,7 @@ class TaskManager:
             task_log.append(record)
         self._update_session(project_name, record)
 
-    async def _notify(self, project_name: str, message: str) -> None:
+    async def _notify(self, project_name: str, message: str | RichMessage) -> None:
         if self._on_notify:
             try:
                 await self._on_notify(project_name, message)
