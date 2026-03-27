@@ -171,13 +171,17 @@ class FeishuChannel(MessageChannel):
                 case ActionGroup(buttons=buttons):
                     actions = []
                     for b in buttons:
+                        if b.style:
+                            btn_type = b.style
+                        elif "/y" in b.command:
+                            btn_type = "primary"
+                        else:
+                            btn_type = "danger"
                         actions.append(
                             {
                                 "tag": "button",
                                 "text": {"content": b.label, "tag": "lark_md"},
-                                "type": "primary"
-                                if "/y" in b.command
-                                else "danger",
+                                "type": btn_type,
                                 "value": {"command": b.command},
                             }
                         )

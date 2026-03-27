@@ -29,6 +29,7 @@ class CodeElement:
 class ActionButton:
     label: str
     command: str
+    style: str = ""
 
 
 @dataclass
