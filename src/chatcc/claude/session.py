@@ -227,7 +227,7 @@ class ProjectSession:
             )
             await self._on_notification(self.project.name, msg)
             allowed = await future
-            if allowed:
+            if allowed == "approve":
                 return PermissionResultAllow(updated_input=input_data)
             return PermissionResultDeny(reason="用户拒绝")
 
