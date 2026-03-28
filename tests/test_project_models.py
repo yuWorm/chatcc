@@ -71,3 +71,31 @@ def test_session_record_from_dict_defaults():
     assert sr.total_cost_usd == 0.0
     assert sr.status == "active"
     assert sr.ended_at is None
+
+
+def test_session_record_summary_default():
+    sr = SessionRecord(session_id="s1", project_name="p")
+    assert sr.summary is None
+
+
+def test_session_record_summary_roundtrip():
+    sr = SessionRecord(
+        session_id="s1",
+        project_name="p",
+        summary="项目完成了用户认证模块的实现",
+    )
+    d = sr.to_dict()
+    assert d["summary"] == "项目完成了用户认证模块的实现"
+    restored = SessionRecord.from_dict(d)
+    assert restored.summary == sr.summary
+
+
+def test_session_record_from_dict_no_summary():
+    """Old JSONL lines without summary field should still parse."""
+    d = {
+        "session_id": "s1",
+        "project_name": "p",
+        "started_at": "2025-01-01T00:00:00",
+    }
+    sr = SessionRecord.from_dict(d)
+    assert sr.summary is None

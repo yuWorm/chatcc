@@ -72,6 +72,7 @@ class SessionRecord:
     task_ids: list[str] = field(default_factory=list)
     total_cost_usd: float = 0.0
     status: str = "active"
+    summary: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -82,6 +83,7 @@ class SessionRecord:
             "task_ids": self.task_ids,
             "total_cost_usd": self.total_cost_usd,
             "status": self.status,
+            "summary": self.summary,
         }
 
     @classmethod
@@ -94,6 +96,7 @@ class SessionRecord:
             task_ids=data.get("task_ids", []),
             total_cost_usd=data.get("total_cost_usd", 0.0),
             status=data.get("status", "active"),
+            summary=data.get("summary"),
         )
 
 
