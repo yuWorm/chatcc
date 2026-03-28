@@ -189,8 +189,14 @@ def _run_provider_setup(
 
 @cli.command()
 @click.option("--config", "config_path", default=None, type=click.Path(exists=True))
+@click.option(
+    "--channel",
+    default=None,
+    type=click.Choice(["cli", "telegram", "feishu", "wechat"], case_sensitive=False),
+    help="覆盖配置文件中的 IM 渠道",
+)
 @click.option("--debug", is_flag=True, default=False)
-def run(config_path: str | None, debug: bool):
+def run(config_path: str | None, channel: str | None, debug: bool):
     """启动 ChatCC"""
     from loguru import logger
     logger.remove()
@@ -200,6 +206,8 @@ def run(config_path: str | None, debug: bool):
     from chatcc.app import Application
 
     config = load_config(Path(config_path) if config_path else None)
+    if channel:
+        config.channel.type = channel
     asyncio.run(Application(config).start())
 
 
