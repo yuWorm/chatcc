@@ -131,6 +131,7 @@ def compose_session_rotated(project: str, reason: str) -> RichMessage:
         "idle": "🔄 会话已自动轮转，开启新对话",
         "context_too_long": "🔄 会话上下文过长，自动切换新会话重试...",
         "process_error": "🔄 Claude Code 进程异常，正在重置连接重试...",
+        "compressing": "🗜️ 正在压缩会话上下文...",
     }
     text = reasons.get(reason, f"🔄 {reason}")
     return RichMessage(

@@ -5,8 +5,9 @@ from chatcc.channel.compose import (
     compose_conflict_choice,
     compose_confirmation,
     compose_pending_list,
+    compose_session_rotated,
 )
-from chatcc.channel.message import ActionGroup, TextElement
+from chatcc.channel.message import ActionGroup, ProgressElement, TextElement
 
 
 def test_compose_conflict_choice():
@@ -70,3 +71,10 @@ def test_compose_pending_list_empty():
     rich = compose_pending_list([])
     texts = [e for e in rich.elements if isinstance(e, TextElement)]
     assert any("暂无" in t.content for t in texts)
+
+
+def test_compose_session_rotated_compressing():
+    rich = compose_session_rotated("myapp", "compressing")
+    elems = [e for e in rich.elements if isinstance(e, ProgressElement)]
+    assert len(elems) == 1
+    assert "压缩" in elems[0].description
