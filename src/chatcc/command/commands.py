@@ -91,6 +91,22 @@ AUGMENTED_COMMANDS = [
         category="项目",
     ),
     CommandSpec(
+        name="add",
+        description="添加已有目录为项目",
+        params=[
+            ParamDef("name", required=True, description="项目名称"),
+            ParamDef("path", required=True, description="已有目录的路径"),
+        ],
+        prompt_template=(
+            "[命令] 用户请求将已有目录添加为项目。\n"
+            "项目名称: {name}\n"
+            "目录路径: {path}\n"
+            "请调用 add_project 工具添加项目，并将结果呈现给用户。"
+            "如果添加成功，提示用户会话将在下次任务时自动恢复。"
+        ),
+        category="项目",
+    ),
+    CommandSpec(
         name="info",
         description="查看项目详情",
         params=[

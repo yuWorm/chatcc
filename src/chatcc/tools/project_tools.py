@@ -19,6 +19,18 @@ def register_project_tools(agent: Agent) -> None:
             return f"创建失败: {e}"
 
     @agent.tool
+    def add_project(ctx: RunContext[Any], name: str, path: str) -> str:
+        """添加已有目录为项目。路径必须已存在，添加后会自动恢复最近的会话。"""
+        pm = ctx.deps.project_manager
+        if not pm:
+            return "错误: 项目管理器未初始化"
+        try:
+            proj = pm.add_project(name, path)
+            return f"项目 '{name}' 添加成功 (路径: {proj.path})"
+        except (ValueError, FileNotFoundError, NotADirectoryError) as e:
+            return f"添加失败: {e}"
+
+    @agent.tool
     def list_projects(ctx: RunContext[Any]) -> str:
         pm = ctx.deps.project_manager
         if not pm:

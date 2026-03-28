@@ -77,6 +77,36 @@ class ProjectManager:
         self._save_project(project)
         return project
 
+    def add_project(self, name: str, path: str) -> Project:
+        """Register an existing directory as a project.
+
+        Unlike *create_project*, this requires *path* to point to an existing
+        directory and will never create one.
+        """
+        if name in self._projects:
+            raise ValueError(f"Project '{name}' already exists")
+
+        resolved = Path(path).expanduser().resolve()
+        if not resolved.exists():
+            raise FileNotFoundError(f"Path does not exist: {resolved}")
+        if not resolved.is_dir():
+            raise NotADirectoryError(f"Path is not a directory: {resolved}")
+
+        is_default = len(self._projects) == 0
+        config = ProjectConfig()
+        if self._claude_defaults:
+            config.permission_mode = self._claude_defaults.permission_mode
+            config.setting_sources = list(self._claude_defaults.setting_sources)
+            config.model = self._claude_defaults.model
+
+        project = Project(
+            name=name, path=str(resolved),
+            is_default=is_default, config=config,
+        )
+        self._projects[name] = project
+        self._save_project(project)
+        return project
+
     def list_projects(self) -> list[Project]:
         return list(self._projects.values())
 
