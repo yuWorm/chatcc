@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -119,3 +120,15 @@ async def test_logs_tail_read(svc_manager: ServiceManager, tmp_path: Path):
     lines = output.strip().splitlines()
     assert len(lines) == 5
     assert lines[-1] == "line_100"
+
+
+@pytest.mark.asyncio
+async def test_detect_project(svc_manager: ServiceManager, tmp_path: Path):
+    pkg = {"name": "web", "scripts": {"dev": "vite", "build": "vite build"}}
+    proj_dir = tmp_path / "myproj"
+    proj_dir.mkdir()
+    (proj_dir / "package.json").write_text(json.dumps(pkg))
+
+    profile = svc_manager.detect_project(str(proj_dir))
+    assert profile.project_type == "node"
+    assert any(c.name == "dev" for c in profile.available_commands)

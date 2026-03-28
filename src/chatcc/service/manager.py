@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from chatcc.service.detector import ProjectDetector, ProjectProfile
+
 
 @dataclass
 class RunningService:
@@ -22,6 +24,11 @@ class ServiceManager:
     def __init__(self, services_dir: Path | None = None):
         self._services_dir = services_dir or (Path.home() / "services")
         self._services: dict[str, dict[str, RunningService]] = {}
+        self._detector = ProjectDetector()
+
+    def detect_project(self, project_path: str) -> ProjectProfile:
+        """Detect project type and available commands."""
+        return self._detector.detect(project_path)
 
     async def start(
         self, project: str, name: str, command: str, cwd: str
