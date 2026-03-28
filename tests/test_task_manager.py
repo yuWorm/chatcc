@@ -8,6 +8,7 @@ import pytest
 
 from chatcc.claude.session import TaskState
 from chatcc.claude.task_manager import TaskManager
+from chatcc.config import SessionPolicyConfig
 from chatcc.project.models import SessionRecord
 from chatcc.project.session_log import SessionLog
 
@@ -51,37 +52,44 @@ def test_get_session_returns_none_for_unknown_project(mock_pm):
 async def test_submit_task_unknown_project(mock_pm):
     tm = TaskManager(project_manager=mock_pm)
     result = await tm.submit_task("nope", "x")
-    assert "不存在" in result
+    assert "不存在" in result.message
 
 
 @pytest.mark.asyncio
 @patch("chatcc.claude.task_manager.ProjectSession")
 async def test_submit_task_success(MockSession, mock_pm):
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
     mock_session = AsyncMock()
     mock_session.project = mock_pm.get_project("proj-a")
     mock_session.task_state = TaskState.IDLE
-    mock_session.send_task = AsyncMock(
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock(
         return_value={"session_id": "sess-1", "cost": 0.01}
     )
     MockSession.return_value = mock_session
 
     tm = TaskManager(project_manager=mock_pm)
     result = await tm.submit_task("proj-a", "build feature X")
-    assert "已提交" in result
+    assert "已提交" in result.message
 
-    await asyncio.wait_for(_wait_send_task(mock_session), timeout=2.0)
-    mock_session.send_task.assert_called_once_with("build feature X")
+    await asyncio.wait_for(_wait_client_query(mock_client), timeout=2.0)
+    mock_client.query.assert_awaited_once_with("build feature X")
+    await asyncio.sleep(0.05)
     assert mock_session.task_state == TaskState.COMPLETED
 
 
-async def _wait_send_task(mock_session, timeout: float = 2.0) -> None:
+async def _wait_client_query(mock_client: AsyncMock, timeout: float = 2.0) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while loop.time() < deadline:
-        if mock_session.send_task.await_count > 0:
+        if mock_client.query.await_count > 0:
             return
         await asyncio.sleep(0.01)
-    raise AssertionError("send_task was not awaited in time")
+    raise AssertionError("client.query was not awaited in time")
 
 
 @pytest.mark.asyncio
@@ -90,20 +98,14 @@ async def test_submit_task_rejects_when_running(MockSession, mock_pm):
     mock_session = AsyncMock()
     mock_session.project = mock_pm.get_project("proj-a")
     mock_session.task_state = TaskState.IDLE
-
-    async def slow_send(_prompt: str) -> None:
-        mock_session.task_state = TaskState.RUNNING
-        await asyncio.sleep(10)
-
-    mock_session.send_task = slow_send
     MockSession.return_value = mock_session
 
     tm = TaskManager(project_manager=mock_pm)
-    await tm.submit_task("proj-a", "first")
-    await asyncio.sleep(0.05)
+    tm.get_session("proj-a")
+    tm._current_tasks["proj-a"] = MagicMock()
 
     second = await tm.submit_task("proj-a", "second")
-    assert "正在执行" in second or "请等待" in second
+    assert "正在执行" in second.message or "请等待" in second.message
 
 
 @pytest.mark.asyncio
@@ -118,7 +120,14 @@ async def test_submit_task_parallel_across_projects(MockSession, mock_pm):
         s = AsyncMock()
         s.project = project
         s.task_state = TaskState.IDLE
-        s.send_task = AsyncMock()
+        s.active_session_id = None
+        s.client = None
+        mc = AsyncMock()
+        mc.query = AsyncMock()
+        s.ensure_connected = AsyncMock(return_value=mc)
+        s.consume_response = AsyncMock(
+            return_value={"session_id": f"sess-{name}", "cost": 0.01}
+        )
         by_name[name] = s
         return s
 
@@ -129,21 +138,28 @@ async def test_submit_task_parallel_across_projects(MockSession, mock_pm):
     await tm.submit_task("proj-b", "b1")
     await asyncio.sleep(0.15)
 
-    assert by_name["proj-a"].send_task.await_count == 1
-    assert by_name["proj-b"].send_task.await_count == 1
+    assert by_name["proj-a"].ensure_connected.await_count >= 1
+    assert by_name["proj-b"].ensure_connected.await_count >= 1
 
 
-async def _long_send_task(_prompt: str) -> None:
+async def _long_consume_response() -> dict[str, object]:
     await asyncio.sleep(3600)
+    return {}
 
 
 @pytest.mark.asyncio
 @patch("chatcc.claude.task_manager.ProjectSession")
 async def test_interrupt_task(MockSession, mock_pm):
-    mock_session = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = MagicMock()
     mock_session.project = mock_pm.get_project("proj-a")
-    mock_session.task_state = TaskState.RUNNING
-    mock_session.send_task = AsyncMock(side_effect=_long_send_task)
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = _long_consume_response
     mock_session.interrupt = AsyncMock()
     MockSession.return_value = mock_session
 
@@ -154,6 +170,7 @@ async def test_interrupt_task(MockSession, mock_pm):
     msg = await tm.interrupt_task("proj-a")
     assert "已中断" in msg
     mock_session.interrupt.assert_awaited()
+    await tm.shutdown()
 
 
 @pytest.mark.asyncio
@@ -195,10 +212,16 @@ def test_get_all_status(mock_pm):
 @pytest.mark.asyncio
 @patch("chatcc.claude.task_manager.ProjectSession")
 async def test_shutdown_cancels_and_disconnects(MockSession, mock_pm):
-    mock_session = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = MagicMock()
     mock_session.project = mock_pm.get_project("proj-a")
     mock_session.task_state = TaskState.IDLE
-    mock_session.send_task = AsyncMock(side_effect=_long_send_task)
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = _long_consume_response
     mock_session.disconnect = AsyncMock()
     MockSession.return_value = mock_session
 
@@ -214,10 +237,16 @@ async def test_shutdown_cancels_and_disconnects(MockSession, mock_pm):
 @pytest.mark.asyncio
 @patch("chatcc.claude.task_manager.ProjectSession")
 async def test_run_task_sets_failed_on_error(MockSession, mock_pm):
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock(side_effect=RuntimeError("boom"))
+
     mock_session = AsyncMock()
     mock_session.project = mock_pm.get_project("proj-a")
     mock_session.task_state = TaskState.IDLE
-    mock_session.send_task = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock()
     MockSession.return_value = mock_session
 
     tm = TaskManager(project_manager=mock_pm)
@@ -473,3 +502,152 @@ async def test_process_error_retry_also_fails(MockSession, mock_pm):
 
     assert mock_session.task_state == TaskState.FAILED
     assert any("重试失败" in str(n) for n in notified)
+
+
+# ── Session compression on rotate ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_pending_summary_injected_into_prompt(MockSession, mock_pm):
+    """When a pending summary exists for a project, the first task prompt
+    should be prefixed with the compressed context."""
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock(
+        return_value={"session_id": "new-sess", "cost": 0.01}
+    )
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    tm._pending_summaries["proj-a"] = "之前完成了JWT认证"
+
+    await tm.submit_task("proj-a", "继续实现权限系统")
+    await asyncio.sleep(0.3)
+
+    call_args = mock_client.query.call_args
+    prompt_sent = call_args[0][0] if call_args[0] else call_args[1].get("prompt", "")
+    assert "之前完成了JWT认证" in prompt_sent
+    assert "继续实现权限系统" in prompt_sent
+    assert "proj-a" not in tm._pending_summaries
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_no_summary_no_prefix(MockSession, mock_pm):
+    """Without a pending summary, the prompt is sent as-is."""
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = None
+    mock_session.client = None
+    mock_session.ensure_connected = AsyncMock(return_value=mock_client)
+    mock_session.consume_response = AsyncMock(
+        return_value={"session_id": "s1", "cost": 0.01}
+    )
+    MockSession.return_value = mock_session
+
+    tm = TaskManager(project_manager=mock_pm)
+    await tm.submit_task("proj-a", "build feature")
+    await asyncio.sleep(0.3)
+
+    mock_client.query.assert_awaited_once_with("build feature")
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.compress_session", new_callable=AsyncMock)
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_rotate_with_compress(MockSession, mock_compress, mock_pm):
+    """When compress_on_rotate is True, rotation should compress and store summary."""
+    mock_compress.return_value = "完成了用户认证"
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = "old-sess"
+    mock_session.disconnect = AsyncMock()
+    MockSession.return_value = mock_session
+
+    policy = SessionPolicyConfig(compress_on_rotate=True, max_tasks_per_session=1)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm._sessions["proj-a"] = mock_session
+
+    sl = tm.get_session_log("proj-a")
+    sl.append(SessionRecord(
+        session_id="old-sess", project_name="proj-a",
+        task_ids=["t1"], status="active",
+    ))
+
+    await tm._rotate_session("proj-a")
+
+    mock_compress.assert_awaited_once_with(
+        "old-sess", mock_session.project.path, model=mock_session.project.config.model,
+    )
+    assert tm._pending_summaries.get("proj-a") == "完成了用户认证"
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.compress_session", new_callable=AsyncMock)
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_rotate_compress_disabled(MockSession, mock_compress, mock_pm):
+    """When compress_on_rotate is False (default), no compression happens."""
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = "old-sess"
+    mock_session.disconnect = AsyncMock()
+    MockSession.return_value = mock_session
+
+    policy = SessionPolicyConfig(compress_on_rotate=False)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm._sessions["proj-a"] = mock_session
+
+    sl = tm.get_session_log("proj-a")
+    sl.append(SessionRecord(
+        session_id="old-sess", project_name="proj-a", status="active",
+    ))
+
+    await tm._rotate_session("proj-a")
+
+    mock_compress.assert_not_awaited()
+    assert "proj-a" not in tm._pending_summaries
+
+
+@pytest.mark.asyncio
+@patch("chatcc.claude.task_manager.compress_session", new_callable=AsyncMock)
+@patch("chatcc.claude.task_manager.ProjectSession")
+async def test_rotate_compress_failure_degrades(MockSession, mock_compress, mock_pm):
+    """Compression failure should not block rotation."""
+    mock_compress.return_value = None
+
+    mock_session = AsyncMock()
+    mock_session.project = mock_pm.get_project("proj-a")
+    mock_session.task_state = TaskState.IDLE
+    mock_session.active_session_id = "old-sess"
+    mock_session.disconnect = AsyncMock()
+    MockSession.return_value = mock_session
+
+    policy = SessionPolicyConfig(compress_on_rotate=True, max_tasks_per_session=1)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm._sessions["proj-a"] = mock_session
+
+    sl = tm.get_session_log("proj-a")
+    sl.append(SessionRecord(
+        session_id="old-sess", project_name="proj-a", status="active",
+    ))
+
+    await tm._rotate_session("proj-a")
+
+    mock_session.disconnect.assert_awaited()
+    assert mock_session.active_session_id is None
+    assert "proj-a" not in tm._pending_summaries

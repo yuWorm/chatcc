@@ -17,6 +17,7 @@ from chatcc.channel.compose import (
     compose_task_interrupted,
 )
 from chatcc.channel.message import RichMessage
+from chatcc.claude.compress import compress_session
 from chatcc.claude.session import ProjectSession, TaskState
 from chatcc.project.models import (
     QueuedTask,
@@ -63,6 +64,7 @@ class TaskManager:
         self._current_tasks: dict[str, QueuedTask] = {}
         self._task_logs: dict[str, TaskLog] = {}
         self._session_logs: dict[str, SessionLog] = {}
+        self._pending_summaries: dict[str, str] = {}
 
     # ── Session / log accessors ────────────────────────────────────
 
@@ -369,10 +371,11 @@ class TaskManager:
                 try:
                     await self._run_task_item(project_name, queued)
                 except asyncio.CancelledError:
-                    # Worker itself is being shut down.
-                    queued.record.status = "cancelled"
-                    queued.record.completed_at = datetime.now()
-                    self._persist_task(project_name, queued.record)
+                    # Worker shutdown while a task was in flight.
+                    if queued.record.status == "running":
+                        queued.record.status = "cancelled"
+                        queued.record.completed_at = datetime.now()
+                        self._persist_task(project_name, queued.record)
                     raise
                 except Exception:
                     logger.opt(exception=True).warning(
@@ -399,7 +402,14 @@ class TaskManager:
 
         try:
             client = await session.ensure_connected()
-            await client.query(queued.prompt)
+            prompt = queued.prompt
+            carry_over = self._pending_summaries.pop(project_name, None)
+            if carry_over:
+                prompt = (
+                    f"[前序会话上下文]\n{carry_over}\n"
+                    f"[/前序会话上下文]\n\n{prompt}"
+                )
+            await client.query(prompt)
             result = await session.consume_response()
 
             # session.interrupt() may cause consume_response to end gracefully
@@ -420,6 +430,7 @@ class TaskManager:
             session.task_state = TaskState.INTERRUPTED
             record.status = "interrupted"
             await self._notify(project_name, compose_task_interrupted(project_name))
+            raise
         except Exception as exc:
             if self._is_context_too_long(exc):
                 await self._handle_context_too_long(project_name, session, queued, exc)
@@ -454,6 +465,29 @@ class TaskManager:
         session = self._sessions.get(project_name)
         if not session:
             return
+
+        if (
+            self._policy.compress_on_rotate
+            and session.active_session_id
+        ):
+            await self._notify(
+                project_name,
+                compose_session_rotated(project_name, "compressing"),
+            )
+            summary = await compress_session(
+                session.active_session_id,
+                session.project.path,
+                model=session.project.config.model,
+            )
+            if summary:
+                self._pending_summaries[project_name] = summary
+                session_log = self.get_session_log(project_name)
+                if session_log:
+                    record = session_log.get(session.active_session_id)
+                    if record:
+                        record.summary = summary
+                        session_log.append(record)
+
         self.close_session(project_name)
         try:
             await session.disconnect()
@@ -461,7 +495,10 @@ class TaskManager:
             pass
         session.active_session_id = None
         session.task_state = TaskState.IDLE
-        await self._notify(project_name, compose_session_rotated(project_name, "idle"))
+        await self._notify(
+            project_name,
+            compose_session_rotated(project_name, "idle"),
+        )
 
     @staticmethod
     def _is_process_error(exc: Exception) -> bool:
