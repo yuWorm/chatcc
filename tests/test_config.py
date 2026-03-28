@@ -54,3 +54,20 @@ channel:
 """)
     config = load_config(config_file)
     assert config.channel.telegram["token"] == "my-secret-token"
+
+
+def test_session_policy_compress_default():
+    from chatcc.config import SessionPolicyConfig
+
+    policy = SessionPolicyConfig()
+    assert policy.compress_on_rotate is False
+
+
+def test_session_policy_compress_from_yaml(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("""
+session_policy:
+  compress_on_rotate: true
+""")
+    config = load_config(config_file)
+    assert config.session_policy.compress_on_rotate is True

@@ -69,6 +69,7 @@ class SessionPolicyConfig:
     max_cost_per_session: float = 2.0
     idle_disconnect_seconds: int = 300
     restore_on_startup: bool = True
+    compress_on_rotate: bool = False
 
 
 @dataclass
@@ -174,6 +175,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             max_cost_per_session=sp.get("max_cost_per_session", 2.0),
             idle_disconnect_seconds=sp.get("idle_disconnect_seconds", 300),
             restore_on_startup=sp.get("restore_on_startup", True),
+            compress_on_rotate=sp.get("compress_on_rotate", False),
         )
 
     if "rich_message" in expanded:
