@@ -651,3 +651,63 @@ async def test_rotate_compress_failure_degrades(MockSession, mock_compress, mock
     mock_session.disconnect.assert_awaited()
     assert mock_session.active_session_id is None
     assert "proj-a" not in tm._pending_summaries
+
+
+# ── Restore pending summary on restart ─────────────────────────────
+
+
+def test_restore_recovers_pending_summary(mock_pm):
+    """On restart, if the most recent closed session has a summary,
+    it should be loaded into _pending_summaries."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="old-sess",
+        project_name="proj-a",
+        status="closed",
+        summary="完成了数据库迁移",
+    ))
+
+    policy = SessionPolicyConfig(compress_on_rotate=True)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm.get_session("proj-a")
+
+    assert tm._pending_summaries.get("proj-a") == "完成了数据库迁移"
+
+
+def test_restore_no_summary_when_disabled(mock_pm):
+    """When compress_on_rotate is off, don't restore summaries."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="old-sess",
+        project_name="proj-a",
+        status="closed",
+        summary="完成了数据库迁移",
+    ))
+
+    policy = SessionPolicyConfig(compress_on_rotate=False)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm.get_session("proj-a")
+
+    assert "proj-a" not in tm._pending_summaries
+
+
+def test_restore_no_summary_when_active_session_exists(mock_pm):
+    """If there's an active session (not yet rotated), don't load old summary."""
+    data_dir = mock_pm.project_dir("proj-a")
+    sl = SessionLog(data_dir / "sessions.jsonl")
+    sl.append(SessionRecord(
+        session_id="old-sess", project_name="proj-a",
+        status="closed", summary="旧摘要",
+    ))
+    sl.append(SessionRecord(
+        session_id="current-sess", project_name="proj-a",
+        status="active",
+    ))
+
+    policy = SessionPolicyConfig(compress_on_rotate=True)
+    tm = TaskManager(project_manager=mock_pm, session_policy=policy)
+    tm.get_session("proj-a")
+
+    assert "proj-a" not in tm._pending_summaries

@@ -131,6 +131,26 @@ class TaskManager:
 
         logger.debug("No session to restore for '{}'", project_name)
 
+        # If no active session but compress is on, check for a pending summary
+        # from the most recently closed session (rotation completed before restart).
+        if (
+            not session.active_session_id
+            and self._policy.compress_on_rotate
+            and session_log
+        ):
+            closed = [
+                r for r in session_log.get_all()
+                if r.status == "closed" and r.summary
+            ]
+            if closed:
+                closed.sort(key=lambda r: r.started_at)
+                self._pending_summaries[project_name] = closed[-1].summary
+                logger.info(
+                    "Restored pending summary for '{}' from session {}",
+                    project_name,
+                    closed[-1].session_id[:12],
+                )
+
     async def restore_all_sessions(self) -> int:
         """Proactively restore session IDs for all known projects.
 
