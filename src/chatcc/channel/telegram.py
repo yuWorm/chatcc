@@ -174,7 +174,7 @@ class TelegramChannel(MessageChannel):
     def is_authenticated(self) -> bool:
         return bool(self._token)
 
-    async def send_typing(self, chat_id: str) -> None:
+    async def send_typing(self, chat_id: str, message_id: str | None = None) -> None:
         if self._bot:
             try:
                 await self._bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
