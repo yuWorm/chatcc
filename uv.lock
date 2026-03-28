@@ -440,6 +440,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qrcode" },
     { name = "questionary" },
+    { name = "wecom-aibot-sdk" },
 ]
 
 [package.optional-dependencies]
@@ -466,6 +467,7 @@ requires-dist = [
     { name = "qrcode" },
     { name = "questionary" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "wecom-aibot-sdk" },
 ]
 provides-extras = ["dev"]
 
@@ -3050,6 +3052,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/b6/b9afed2afadddaf5ebb2afa801abf4b0868f42f8539bfe4b071b5266c9fe/websockets-16.0-cp314-cp314t-win32.whl", hash = "sha256:5a4b4cc550cb665dd8a47f868c8d04c8230f857363ad3c9caf7a0c3bf8c61ca6", size = 178085, upload-time = "2026-01-10T09:23:33.816Z" },
     { url = "https://files.pythonhosted.org/packages/9f/3e/28135a24e384493fa804216b79a6a6759a38cc4ff59118787b9fb693df93/websockets-16.0-cp314-cp314t-win_amd64.whl", hash = "sha256:b14dc141ed6d2dde437cddb216004bcac6a1df0935d79656387bd41632ba0bbd", size = 178531, upload-time = "2026-01-10T09:23:35.016Z" },
     { url = "https://files.pythonhosted.org/packages/6f/28/258ebab549c2bf3e64d2b0217b973467394a9cea8c42f70418ca2c5d0d2e/websockets-16.0-py3-none-any.whl", hash = "sha256:1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec", size = 171598, upload-time = "2026-01-10T09:23:45.395Z" },
+]
+
+[[package]]
+name = "wecom-aibot-sdk"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/0a/38a399d70731070e990edcdf335842c844ee08b4ba7b5cb88acfae294016/wecom_aibot_sdk-1.0.6.tar.gz", hash = "sha256:16dfc5c7c35fc51708788a4dccacc6ce1137343f03e255cd33037abd6b309803", size = 61502, upload-time = "2026-03-27T16:01:16.986Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/5b/d489b9a1308665d7577b36f2deb3af30045831f57dce06c9b3574b16ba57/wecom_aibot_sdk-1.0.6-py3-none-any.whl", hash = "sha256:9f4fed218d9dedc6df07b326eb2884f20220b851881c5731b111d4e4fbe7a609", size = 27609, upload-time = "2026-03-27T16:01:15.528Z" },
 ]
 
 [[package]]

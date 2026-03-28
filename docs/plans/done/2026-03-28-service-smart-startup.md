@@ -1,6 +1,6 @@
 # 服务智能启动 + ServiceManager Bug 修复 — 设计文档
 
-> **Status: draft**
+> **Status: ✅ COMPLETED** (2026-03-28)
 
 ## 目标
 

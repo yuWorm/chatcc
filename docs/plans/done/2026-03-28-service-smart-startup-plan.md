@@ -1,6 +1,8 @@
 # 服务智能启动 — 实现计划
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: ✅ COMPLETED** (2026-03-28)
+
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 自动检测项目类型并提取可用启动命令，同时修复 ServiceManager 的进程管理、日志读取等 bug。
 
@@ -31,7 +33,7 @@
 - Modify: `src/chatcc/service/manager.py:161-167`
 - Test: `tests/test_service_manager.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/test_service_manager.py` 底部追加：
 
@@ -54,12 +56,12 @@ def test_is_process_running_ok():
 
 需要在文件顶部加 `from unittest.mock import patch`。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_service_manager.py::test_is_process_running_permission_error -v`
 Expected: FAIL — `assert False is True`
 
-- [ ] **Step 3: 修复实现**
+- [x] **Step 3: 修复实现**
 
 在 `src/chatcc/service/manager.py` 中替换 `_is_process_running`：
 
@@ -75,12 +77,12 @@ def _is_process_running(pid: int) -> bool:
         return False
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 Run: `pytest tests/test_service_manager.py -k "is_process_running" -v`
 Expected: 3 PASSED
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/chatcc/service/manager.py tests/test_service_manager.py
@@ -95,7 +97,7 @@ git commit -m "fix(service): _is_process_running returns True on PermissionError
 - Modify: `src/chatcc/service/manager.py:57-62` (start), `80-108` (stop)
 - Test: `tests/test_service_manager.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/test_service_manager.py` 追加：
 
@@ -119,12 +121,12 @@ async def test_stop_kills_process_group(svc_manager: ServiceManager, tmp_path: P
 
 需要在文件顶部加 `import os`。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_service_manager.py::test_stop_kills_process_group -v`
 Expected: FAIL — `assert pgid == pid` fails（因为没有 `start_new_session=True`）
 
-- [ ] **Step 3: 修改 start() 加 start_new_session=True**
+- [x] **Step 3: 修改 start() 加 start_new_session=True**
 
 在 `src/chatcc/service/manager.py` 的 `start()` 方法中，`create_subprocess_shell` 调用改为：
 
@@ -138,7 +140,7 @@ proc = await asyncio.create_subprocess_shell(
 )
 ```
 
-- [ ] **Step 4: 修改 stop() 使用 os.killpg**
+- [x] **Step 4: 修改 stop() 使用 os.killpg**
 
 在 `src/chatcc/service/manager.py` 的 `stop()` 方法中，替换信号发送逻辑：
 
@@ -175,12 +177,12 @@ async def stop(self, project: str, name: str) -> bool:
     return True
 ```
 
-- [ ] **Step 5: 运行测试验证通过**
+- [x] **Step 5: 运行测试验证通过**
 
 Run: `pytest tests/test_service_manager.py -v`
 Expected: ALL PASSED
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/chatcc/service/manager.py tests/test_service_manager.py
@@ -195,7 +197,7 @@ git commit -m "fix(service): use process groups for reliable subprocess cleanup"
 - Modify: `src/chatcc/service/manager.py:55` (open 模式), `128-139` (logs 方法)
 - Test: `tests/test_service_manager.py`
 
-- [ ] **Step 1: 写日志尾读测试**
+- [x] **Step 1: 写日志尾读测试**
 
 在 `tests/test_service_manager.py` 追加：
 
@@ -215,12 +217,12 @@ async def test_logs_tail_read(svc_manager: ServiceManager, tmp_path: Path):
     assert lines[-1] == "line_100"
 ```
 
-- [ ] **Step 2: 运行测试验证通过（当前实现也能通过，但我们要改内部实现）**
+- [x] **Step 2: 运行测试验证通过（当前实现也能通过，但我们要改内部实现）**
 
 Run: `pytest tests/test_service_manager.py::test_logs_tail_read -v`
 Expected: PASS（功能不变，只是内部优化）
 
-- [ ] **Step 3: 改 open 为 binary 模式**
+- [x] **Step 3: 改 open 为 binary 模式**
 
 在 `src/chatcc/service/manager.py` 的 `start()` 中替换：
 
@@ -228,7 +230,7 @@ Expected: PASS（功能不变，只是内部优化）
 log_fh = open(log_file, "ab")
 ```
 
-- [ ] **Step 4: 改 logs() 为尾部读取**
+- [x] **Step 4: 改 logs() 为尾部读取**
 
 替换 `logs()` 方法：
 
@@ -256,12 +258,12 @@ async def logs(self, project: str, name: str, lines: int = 50) -> str:
     return "\n".join(result_lines[-lines:])
 ```
 
-- [ ] **Step 5: 运行全部测试**
+- [x] **Step 5: 运行全部测试**
 
 Run: `pytest tests/test_service_manager.py -v`
 Expected: ALL PASSED
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/chatcc/service/manager.py tests/test_service_manager.py
@@ -278,7 +280,7 @@ git commit -m "fix(service): binary log mode and tail-read for logs()"
 - Create: `src/chatcc/service/detector.py`
 - Create: `tests/test_detector.py`
 
-- [ ] **Step 1: 写 Node.js 检测的失败测试**
+- [x] **Step 1: 写 Node.js 检测的失败测试**
 
 创建 `tests/test_detector.py`：
 
@@ -326,12 +328,12 @@ def test_detect_unknown_project(detector: ProjectDetector, tmp_path: Path):
     assert profile.available_commands == []
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_detector.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'chatcc.service.detector'`
 
-- [ ] **Step 3: 实现数据结构 + Node.js 检测**
+- [x] **Step 3: 实现数据结构 + Node.js 检测**
 
 创建 `src/chatcc/service/detector.py`：
 
@@ -547,12 +549,12 @@ class ProjectDetector:
         return cmds
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 Run: `pytest tests/test_detector.py -v`
 Expected: 2 PASSED
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/chatcc/service/detector.py tests/test_detector.py
@@ -566,7 +568,7 @@ git commit -m "feat(service): add ProjectDetector with Node.js support"
 **Files:**
 - Test: `tests/test_detector.py`
 
-- [ ] **Step 1: 追加各项目类型测试**
+- [x] **Step 1: 追加各项目类型测试**
 
 在 `tests/test_detector.py` 底部追加：
 
@@ -635,12 +637,12 @@ def test_detect_rust(detector: ProjectDetector, tmp_path: Path):
     assert "test" in names
 ```
 
-- [ ] **Step 2: 运行测试验证通过**
+- [x] **Step 2: 运行测试验证通过**
 
 Run: `pytest tests/test_detector.py -v`
 Expected: ALL PASSED (8 tests)
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/test_detector.py
@@ -654,7 +656,7 @@ git commit -m "test(service): add detector tests for Python, Makefile, Go, Rust"
 **Files:**
 - Test: `tests/test_detector.py`
 
-- [ ] **Step 1: 写 README 优先级测试**
+- [x] **Step 1: 写 README 优先级测试**
 
 在 `tests/test_detector.py` 底部追加：
 
@@ -709,12 +711,12 @@ def test_readme_dedup_with_config(detector: ProjectDetector, tmp_path: Path):
     assert dev_cmds[0].source == "readme"
 ```
 
-- [ ] **Step 2: 运行测试验证通过**
+- [x] **Step 2: 运行测试验证通过**
 
 Run: `pytest tests/test_detector.py -v`
 Expected: ALL PASSED (11 tests)
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/test_detector.py
@@ -731,7 +733,7 @@ git commit -m "test(service): README priority and dedup tests for detector"
 - Modify: `src/chatcc/service/manager.py`
 - Test: `tests/test_service_manager.py`
 
-- [ ] **Step 1: 写集成测试**
+- [x] **Step 1: 写集成测试**
 
 在 `tests/test_service_manager.py` 底部追加：
 
@@ -750,12 +752,12 @@ async def test_detect_project(svc_manager: ServiceManager, tmp_path: Path):
 
 需要在文件顶部加 `import json`。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_service_manager.py::test_detect_project -v`
 Expected: FAIL — `AttributeError: 'ServiceManager' object has no attribute 'detect_project'`
 
-- [ ] **Step 3: 在 ServiceManager 集成 detector**
+- [x] **Step 3: 在 ServiceManager 集成 detector**
 
 在 `src/chatcc/service/manager.py` 顶部加 import：
 
@@ -777,12 +779,12 @@ def detect_project(self, project_path: str) -> ProjectProfile:
     return self._detector.detect(project_path)
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 Run: `pytest tests/test_service_manager.py -v`
 Expected: ALL PASSED
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/chatcc/service/manager.py tests/test_service_manager.py
@@ -797,7 +799,7 @@ git commit -m "feat(service): integrate ProjectDetector into ServiceManager"
 - Modify: `src/chatcc/tools/service_tools.py`
 - Test: `tests/test_tools_service.py`
 
-- [ ] **Step 1: 写 tool 测试**
+- [x] **Step 1: 写 tool 测试**
 
 在 `tests/test_tools_service.py` 底部追加：
 
@@ -836,12 +838,12 @@ def test_inspect_project_no_manager(dispatcher: Dispatcher) -> None:
 
 需要在文件顶部加 `from pathlib import Path`。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 Run: `pytest tests/test_tools_service.py::test_inspect_project_success -v`
 Expected: FAIL — `KeyError: 'inspect_project'`
 
-- [ ] **Step 3: 在 service_tools.py 新增 inspect_project**
+- [x] **Step 3: 在 service_tools.py 新增 inspect_project**
 
 在 `src/chatcc/tools/service_tools.py` 的 `register_service_tools` 函数中，`service_logs` 之后追加：
 
@@ -876,17 +878,17 @@ Expected: FAIL — `KeyError: 'inspect_project'`
         return "\n".join(lines)
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 Run: `pytest tests/test_tools_service.py -v`
 Expected: ALL PASSED
 
-- [ ] **Step 5: 运行全量测试**
+- [x] **Step 5: 运行全量测试**
 
 Run: `pytest tests/ -v`
 Expected: ALL PASSED
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/chatcc/tools/service_tools.py tests/test_tools_service.py

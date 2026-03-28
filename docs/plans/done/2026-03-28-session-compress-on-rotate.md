@@ -2,7 +2,7 @@
 
 > **Status: ✅ COMPLETED** (2026-03-28)
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 自动轮转会话时，压缩旧会话历史为极简摘要，注入新会话首条 prompt，使新会话保留前序上下文。通过配置开关控制是否启用。
 
@@ -37,7 +37,7 @@
 - Modify: `src/chatcc/config.py:170-177` (`load_config` 的 `session_policy` 解析)
 - Test: `tests/test_config.py`
 
-- [ ] **Step 1: 写失败测试 — config 默认值**
+- [x] **Step 1: 写失败测试 — config 默认值**
 
 在 `tests/test_config.py` 底部加：
 
@@ -58,12 +58,12 @@ session_policy:
     assert config.session_policy.compress_on_rotate is True
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_config.py::test_session_policy_compress_default tests/test_config.py::test_session_policy_compress_from_yaml -v`
 Expected: FAIL — `SessionPolicyConfig` has no attribute `compress_on_rotate`
 
-- [ ] **Step 3: 实现 — 修改 SessionPolicyConfig**
+- [x] **Step 3: 实现 — 修改 SessionPolicyConfig**
 
 在 `src/chatcc/config.py` 的 `SessionPolicyConfig` 中加字段：
 
@@ -93,12 +93,12 @@ if "session_policy" in expanded:
     )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/test_config.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/chatcc/config.py tests/test_config.py
@@ -111,7 +111,7 @@ git commit -m "feat(config): add compress_on_rotate session policy option"
 - Modify: `src/chatcc/project/models.py:64-97` (`SessionRecord`)
 - Test: `tests/test_project_models.py`
 
-- [ ] **Step 1: 写失败测试 — summary 字段**
+- [x] **Step 1: 写失败测试 — summary 字段**
 
 在 `tests/test_project_models.py` 底部加：
 
@@ -144,12 +144,12 @@ def test_session_record_from_dict_no_summary():
     assert sr.summary is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_project_models.py::test_session_record_summary_default tests/test_project_models.py::test_session_record_summary_roundtrip tests/test_project_models.py::test_session_record_from_dict_no_summary -v`
 Expected: FAIL — `SessionRecord` has no `summary`
 
-- [ ] **Step 3: 实现 — 修改 SessionRecord**
+- [x] **Step 3: 实现 — 修改 SessionRecord**
 
 在 `src/chatcc/project/models.py` 的 `SessionRecord` 中：
 
@@ -168,12 +168,12 @@ Expected: FAIL — `SessionRecord` has no `summary`
     summary=data.get("summary"),
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/test_project_models.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/chatcc/project/models.py tests/test_project_models.py
@@ -196,7 +196,7 @@ git commit -m "feat(models): add summary field to SessionRecord"
 - 压缩 prompt 要求极致精简：只保留项目状态、关键决策、未完成事项
 - 失败返回 `None`，调用方静默降级
 
-- [ ] **Step 1: 写 format_messages 测试**
+- [x] **Step 1: 写 format_messages 测试**
 
 创建 `tests/test_compress.py`：
 
@@ -258,12 +258,12 @@ def test_format_messages_truncates_long_content():
     assert len(result) <= 6000  # some overhead for role prefix
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_compress.py -v`
 Expected: FAIL — `chatcc.claude.compress` module not found
 
-- [ ] **Step 3: 实现 format_messages**
+- [x] **Step 3: 实现 format_messages**
 
 创建 `src/chatcc/claude/compress.py`：
 
@@ -314,12 +314,12 @@ def format_messages(
     return full
 ```
 
-- [ ] **Step 4: 运行 format_messages 测试确认通过**
+- [x] **Step 4: 运行 format_messages 测试确认通过**
 
 Run: `pytest tests/test_compress.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 写 compress_session 测试**
+- [x] **Step 5: 写 compress_session 测试**
 
 在 `tests/test_compress.py` 底部加：
 
@@ -379,7 +379,7 @@ async def test_compress_session_error_returns_none(mock_get_msgs):
     assert summary is None
 ```
 
-- [ ] **Step 6: 实现 compress_session**
+- [x] **Step 6: 实现 compress_session**
 
 在 `src/chatcc/claude/compress.py` 底部加：
 
@@ -447,12 +447,12 @@ async def compress_session(
         return None
 ```
 
-- [ ] **Step 7: 运行全部压缩测试确认通过**
+- [x] **Step 7: 运行全部压缩测试确认通过**
 
 Run: `pytest tests/test_compress.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/chatcc/claude/compress.py tests/test_compress.py
@@ -468,7 +468,7 @@ git commit -m "feat(compress): add session compression module"
 **Files:**
 - Modify: `src/chatcc/channel/compose.py:129-139`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 在 `tests/test_compose.py` 底部加：
 
@@ -484,7 +484,7 @@ def test_compose_session_rotated_compressing():
     assert "压缩" in elems[0].text
 ```
 
-- [ ] **Step 2: 实现 — 加 reason 映射**
+- [x] **Step 2: 实现 — 加 reason 映射**
 
 在 `src/chatcc/channel/compose.py` 的 `compose_session_rotated` 的 `reasons` dict 中加一行：
 
@@ -492,12 +492,12 @@ def test_compose_session_rotated_compressing():
     "compressing": "🗜️ 正在压缩会话上下文...",
 ```
 
-- [ ] **Step 3: 运行测试确认通过**
+- [x] **Step 3: 运行测试确认通过**
 
 Run: `pytest tests/test_compose.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/chatcc/channel/compose.py tests/test_compose.py
@@ -516,7 +516,7 @@ git commit -m "feat(compose): add compressing notification reason"
 - `_run_task_item()` 中，若有 pending summary，前缀注入到 prompt
 - 进程重启恢复：在 `_restore_session_id()` 中检查最近一个 closed session 的 summary
 
-- [ ] **Step 1: 写测试 — pending summary 注入到 prompt**
+- [x] **Step 1: 写测试 — pending summary 注入到 prompt**
 
 在 `tests/test_task_manager.py` 底部加：
 
@@ -582,12 +582,12 @@ async def test_no_summary_no_prefix(MockSession, mock_pm):
     mock_client.query.assert_awaited_once_with("build feature")
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_task_manager.py::test_pending_summary_injected_into_prompt tests/test_task_manager.py::test_no_summary_no_prefix -v`
 Expected: FAIL — `TaskManager` has no `_pending_summaries`
 
-- [ ] **Step 3: 实现 — _pending_summaries 和 prompt 注入**
+- [x] **Step 3: 实现 — _pending_summaries 和 prompt 注入**
 
 在 `src/chatcc/claude/task_manager.py` 的 `TaskManager.__init__` 中加：
 
@@ -609,12 +609,12 @@ Expected: FAIL — `TaskManager` has no `_pending_summaries`
 
 然后把 `await client.query(queued.prompt)` 改为 `await client.query(prompt)`。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/test_task_manager.py::test_pending_summary_injected_into_prompt tests/test_task_manager.py::test_no_summary_no_prefix -v`
 Expected: PASS
 
-- [ ] **Step 5: 写测试 — 压缩轮转 e2e**
+- [x] **Step 5: 写测试 — 压缩轮转 e2e**
 
 在 `tests/test_task_manager.py` 底部加：
 
@@ -713,7 +713,7 @@ async def test_rotate_compress_failure_degrades(mock_compress, MockSession, mock
     assert "proj-a" not in tm._pending_summaries
 ```
 
-- [ ] **Step 6: 实现 — _rotate_session 压缩集成**
+- [x] **Step 6: 实现 — _rotate_session 压缩集成**
 
 在 `src/chatcc/claude/task_manager.py` 顶部加导入：
 
@@ -766,12 +766,12 @@ from chatcc.claude.compress import compress_session
         )
 ```
 
-- [ ] **Step 7: 运行全部测试确认通过**
+- [x] **Step 7: 运行全部测试确认通过**
 
 Run: `pytest tests/test_task_manager.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/chatcc/claude/task_manager.py tests/test_task_manager.py
@@ -786,7 +786,7 @@ git commit -m "feat(task_manager): integrate session compression on rotation"
 
 **设计要点：** 如果进程重启时发现最近关闭的 session 有 summary，且当前没有 active session（说明刚轮转完还没发过新任务），则恢复 pending summary。
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 在 `tests/test_task_manager.py` 底部加：
 
@@ -848,12 +848,12 @@ def test_restore_no_summary_when_active_session_exists(mock_pm):
     assert "proj-a" not in tm._pending_summaries
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_task_manager.py::test_restore_recovers_pending_summary -v`
 Expected: FAIL — no summary recovery logic
 
-- [ ] **Step 3: 实现 — _restore_session_id 恢复 summary**
+- [x] **Step 3: 实现 — _restore_session_id 恢复 summary**
 
 在 `_restore_session_id` 方法末尾（`return` 或函数结束之前），加入 summary 恢复逻辑。在所有 `return` 路径之后（当 `session.active_session_id` 仍为 `None` 时），检查最近关闭的 session：
 
@@ -881,17 +881,17 @@ Expected: FAIL — no summary recovery logic
 
 注意：这段逻辑需要在 `_restore_session_id` 已经尝试过恢复 active session 之后执行，且仅在 `session.active_session_id` 仍为 `None` 时（说明无 active session，即上次轮转后没有新任务）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/test_task_manager.py::test_restore_recovers_pending_summary tests/test_task_manager.py::test_restore_no_summary_when_disabled tests/test_task_manager.py::test_restore_no_summary_when_active_session_exists -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 运行全部测试**
+- [x] **Step 5: 运行全部测试**
 
 Run: `pytest tests/ -v`
 Expected: ALL PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/chatcc/claude/task_manager.py tests/test_task_manager.py
@@ -902,9 +902,9 @@ git commit -m "feat(task_manager): restore pending summary on process restart"
 
 ## 验证清单
 
-- [ ] `pytest tests/ -v` 全部通过
-- [ ] `compress_on_rotate: false`（默认）时行为与之前完全一致
-- [ ] `compress_on_rotate: true` 时：轮转触发压缩 → 新会话首条 prompt 带摘要前缀
-- [ ] 压缩失败时静默降级，轮转正常完成
-- [ ] 进程重启后 pending summary 从 JSONL 恢复
-- [ ] `context_too_long` 和 `process_error` 轮转不受影响（不压缩）
+- [x] `pytest tests/ -v` 全部通过
+- [x] `compress_on_rotate: false`（默认）时行为与之前完全一致
+- [x] `compress_on_rotate: true` 时：轮转触发压缩 → 新会话首条 prompt 带摘要前缀
+- [x] 压缩失败时静默降级，轮转正常完成
+- [x] 进程重启后 pending summary 从 JSONL 恢复
+- [x] `context_too_long` 和 `process_error` 轮转不受影响（不压缩）
