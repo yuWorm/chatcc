@@ -105,6 +105,28 @@ def compose_confirmation(
 # ── Task lifecycle ────────────────────────────────────────────────────
 
 
+def compose_task_submitted(project: str, task_id: str, prompt: str) -> RichMessage:
+    preview = prompt[:80]
+    return RichMessage(
+        project_tag=project,
+        elements=[ProgressElement(f"📨 任务 #{task_id} 已提交: {preview}", project=project)],
+    )
+
+
+def compose_task_enqueued(project: str, task_id: str, position: int) -> RichMessage:
+    return RichMessage(
+        project_tag=project,
+        elements=[ProgressElement(f"📋 任务 #{task_id} 已加入队列 (位置: {position})", project=project)],
+    )
+
+
+def compose_task_started(project: str, task_id: str) -> RichMessage:
+    return RichMessage(
+        project_tag=project,
+        elements=[ProgressElement(f"🚀 任务 #{task_id} 开始执行，已发送到 Claude Code", project=project)],
+    )
+
+
 def compose_task_completed(project: str, cost: float) -> RichMessage:
     return RichMessage(
         project_tag=project,

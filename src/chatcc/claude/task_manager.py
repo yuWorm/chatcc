@@ -13,8 +13,11 @@ from chatcc.channel.compose import (
     compose_retry_success,
     compose_session_rotated,
     compose_task_completed,
+    compose_task_enqueued,
     compose_task_failed,
     compose_task_interrupted,
+    compose_task_started,
+    compose_task_submitted,
 )
 from chatcc.channel.message import RichMessage
 from chatcc.claude.compress import compress_session
@@ -277,6 +280,10 @@ class TaskManager:
         queue = self._ensure_queue(project_name)
         await queue.put((queued.priority, time.monotonic(), queued))
         self._ensure_worker(project_name)
+        await self._notify(
+            project_name,
+            compose_task_submitted(project_name, record.id, prompt),
+        )
         return SubmitResult(
             status="submitted",
             message=f"任务已提交到项目 '{project_name}' (#{record.id})",
@@ -296,6 +303,10 @@ class TaskManager:
         self._ensure_worker(project_name)
 
         position = queue.qsize()
+        await self._notify(
+            project_name,
+            compose_task_enqueued(project_name, record.id, position),
+        )
         return SubmitResult(
             status="queued",
             message=f"任务 #{record.id} 已加入队列 (排队位置: {position})",
@@ -312,15 +323,16 @@ class TaskManager:
         record = TaskRecord(prompt=prompt, status="queued", session_id=session.active_session_id)
         queued = QueuedTask(prompt=prompt, record=record, priority=-1)
         queue = self._ensure_queue(project_name)
-        # Enqueue first so the task is safe even if interrupt raises.
         await queue.put((queued.priority, time.monotonic(), queued))
         self._ensure_worker(project_name)
 
-        # Interrupt the running SDK call; consume_response will end and the
-        # worker loop picks up the next (high-priority) item.
         if session.task_state == TaskState.RUNNING:
             await session.interrupt()
 
+        await self._notify(
+            project_name,
+            compose_task_submitted(project_name, record.id, prompt),
+        )
         return SubmitResult(
             status="submitted",
             message=f"已中断当前任务，新任务 #{record.id} 将优先执行",
@@ -419,6 +431,10 @@ class TaskManager:
         record.status = "running"
         session.project.current_task = record
         session.task_state = TaskState.RUNNING
+        await self._notify(
+            project_name,
+            compose_task_started(project_name, record.id),
+        )
 
         try:
             client = await session.ensure_connected()
