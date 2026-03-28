@@ -52,7 +52,7 @@ class ServiceManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{name}.log"
 
-        log_fh = open(log_file, "a", encoding="utf-8", errors="replace")
+        log_fh = open(log_file, "ab")
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -135,9 +135,18 @@ class ServiceManager:
         if not service.log_file.exists():
             return "(无日志)"
 
-        all_lines = service.log_file.read_text(encoding="utf-8", errors="replace").splitlines()
-        recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
-        return "\n".join(recent)
+        chunk_size = 8192
+        result_lines: list[str] = []
+        with open(service.log_file, "rb") as f:
+            f.seek(0, 2)
+            remaining = f.tell()
+            while remaining > 0 and len(result_lines) < lines + 1:
+                read_size = min(chunk_size, remaining)
+                remaining -= read_size
+                f.seek(remaining)
+                chunk = f.read(read_size).decode("utf-8", errors="replace")
+                result_lines = chunk.splitlines() + result_lines
+        return "\n".join(result_lines[-lines:])
 
     async def stop_all(self, project: str | None = None) -> int:
         """Stop all services, optionally for a specific project."""

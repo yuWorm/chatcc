@@ -103,3 +103,19 @@ async def test_stop_kills_process_group(svc_manager: ServiceManager, tmp_path: P
     assert result is True
     await asyncio.sleep(0.2)
     assert not ServiceManager._is_process_running(pid)
+
+
+@pytest.mark.asyncio
+async def test_logs_tail_read(svc_manager: ServiceManager, tmp_path: Path):
+    """logs() should only return the last N lines without loading the entire file."""
+    svc = await svc_manager.start(
+        "proj",
+        "multiline",
+        "for i in $(seq 1 100); do echo line_$i; done && sleep 1",
+        cwd=str(tmp_path),
+    )
+    await asyncio.sleep(1.0)
+    output = await svc_manager.logs("proj", "multiline", lines=5)
+    lines = output.strip().splitlines()
+    assert len(lines) == 5
+    assert lines[-1] == "line_100"
