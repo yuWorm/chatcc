@@ -11,6 +11,7 @@ dependencies = [
     "lark-oapi",
     "aiohttp",
     "cryptography",
+    "wecom-aibot-sdk",
     "qrcode",
     "click",
     "questionary",

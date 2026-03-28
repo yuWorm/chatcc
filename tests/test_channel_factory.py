@@ -37,3 +37,9 @@ def test_get_channel_class_feishu():
 def test_get_channel_class_unknown():
     with pytest.raises(ValueError, match="Unknown channel type"):
         get_channel_class("whatsapp")
+
+
+def test_get_channel_class_wecom():
+    from chatcc.channel.wecom import WeComChannel
+
+    assert get_channel_class("wecom") is WeComChannel
