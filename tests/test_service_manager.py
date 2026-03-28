@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -86,3 +87,19 @@ def test_is_process_running_not_found():
 def test_is_process_running_ok():
     with patch("os.kill"):
         assert ServiceManager._is_process_running(99999) is True
+
+
+@pytest.mark.asyncio
+async def test_stop_kills_process_group(svc_manager: ServiceManager, tmp_path: Path):
+    """stop() should kill the process group, not just the shell PID."""
+    svc = await svc_manager.start(
+        "proj", "nested", "sleep 60 & sleep 60 & wait", cwd=str(tmp_path)
+    )
+    pid = svc.pid
+    pgid = os.getpgid(pid)
+    assert pgid == pid  # start_new_session=True makes pid == pgid
+
+    result = await svc_manager.stop("proj", "nested")
+    assert result is True
+    await asyncio.sleep(0.2)
+    assert not ServiceManager._is_process_running(pid)

@@ -59,6 +59,7 @@ class ServiceManager:
                 cwd=cwd,
                 stdout=log_fh,
                 stderr=log_fh,
+                start_new_session=True,
             )
         finally:
             log_fh.close()
@@ -89,8 +90,8 @@ class ServiceManager:
             return True
 
         try:
-            os.kill(service.pid, signal.SIGTERM)
-        except ProcessLookupError:
+            os.killpg(os.getpgid(service.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
             self._remove_service(project, name)
             return True
 
@@ -101,8 +102,8 @@ class ServiceManager:
                 return True
 
         try:
-            os.kill(service.pid, signal.SIGKILL)
-        except ProcessLookupError:
+            os.killpg(os.getpgid(service.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
             pass
 
         self._remove_service(project, name)
