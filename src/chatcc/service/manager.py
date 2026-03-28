@@ -163,5 +163,7 @@ class ServiceManager:
         try:
             os.kill(pid, 0)
             return True
-        except (ProcessLookupError, PermissionError):
+        except PermissionError:
+            return True
+        except ProcessLookupError:
             return False

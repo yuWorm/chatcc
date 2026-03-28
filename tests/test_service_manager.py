@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -69,3 +70,19 @@ async def test_stop_all(svc_manager: ServiceManager, tmp_path: Path):
     await svc_manager.start("proj", "s2", "sleep 60", cwd=str(tmp_path))
     count = await svc_manager.stop_all()
     assert count == 2
+
+
+def test_is_process_running_permission_error():
+    """PermissionError means process exists but no permission — should return True."""
+    with patch("os.kill", side_effect=PermissionError("not permitted")):
+        assert ServiceManager._is_process_running(99999) is True
+
+
+def test_is_process_running_not_found():
+    with patch("os.kill", side_effect=ProcessLookupError()):
+        assert ServiceManager._is_process_running(99999) is False
+
+
+def test_is_process_running_ok():
+    with patch("os.kill"):
+        assert ServiceManager._is_process_running(99999) is True
