@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from chatcc.service.detector import CommandEntry, ProjectDetector, ProjectProfile
+from chatcc.service.detector import ProjectDetector
 
 
 @pytest.fixture
@@ -103,3 +103,53 @@ def test_detect_rust(detector: ProjectDetector, tmp_path: Path):
     assert "run" in names
     assert "build" in names
     assert "test" in names
+
+
+def test_readme_commands_have_highest_priority(
+    detector: ProjectDetector, tmp_path: Path
+):
+    readme = """# My App
+
+A simple web app.
+
+## Quick Start
+
+```bash
+npm run dev
+```
+"""
+    pkg = {"name": "app", "scripts": {"dev": "vite", "build": "vite build"}}
+    (tmp_path / "README.md").write_text(readme)
+    (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+    profile = detector.detect(str(tmp_path))
+    assert profile.project_type == "node"
+    assert profile.readme_summary != ""
+
+    first_cmd = profile.available_commands[0]
+    assert first_cmd.source == "readme"
+    assert "npm run dev" in first_cmd.command
+
+    sources = [c.source for c in profile.available_commands]
+    assert "readme" in sources
+    assert "package.json" in sources
+
+
+def test_readme_no_commands(detector: ProjectDetector, tmp_path: Path):
+    (tmp_path / "README.md").write_text("# Hello\n\nJust a readme with no commands.\n")
+    profile = detector.detect(str(tmp_path))
+    assert profile.readme_summary != ""
+    assert profile.available_commands == []
+
+
+def test_readme_dedup_with_config(detector: ProjectDetector, tmp_path: Path):
+    """Same command from README and package.json should not appear twice."""
+    readme = "## Start\n\n```\nnpm run dev\n```\n"
+    pkg = {"name": "app", "scripts": {"dev": "vite"}}
+    (tmp_path / "README.md").write_text(readme)
+    (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+    profile = detector.detect(str(tmp_path))
+    dev_cmds = [c for c in profile.available_commands if c.command == "npm run dev"]
+    assert len(dev_cmds) == 1
+    assert dev_cmds[0].source == "readme"
