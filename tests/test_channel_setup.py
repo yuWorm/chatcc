@@ -54,6 +54,25 @@ def test_feishu_interactive_setup_empty_creds():
         FeishuChannel.interactive_setup(ui)
 
 
+def test_wecom_interactive_setup():
+    from chatcc.channel.wecom import WeComChannel
+
+    ui = FakeSetupUI(["bot-id-123", "secret-456", "zhangsan, lisi"])
+    result = WeComChannel.interactive_setup(ui)
+
+    assert result["bot_id"] == "bot-id-123"
+    assert result["secret"] == "secret-456"
+    assert result["allowed_users"] == ["zhangsan", "lisi"]
+
+
+def test_wecom_interactive_setup_empty_creds():
+    from chatcc.channel.wecom import WeComChannel
+
+    ui = FakeSetupUI(["", "", ""])
+    with pytest.raises(ValueError, match="不能为空"):
+        WeComChannel.interactive_setup(ui)
+
+
 def test_base_channel_interactive_setup_returns_empty():
     from chatcc.channel.base import MessageChannel
 

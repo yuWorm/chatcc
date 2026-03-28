@@ -22,6 +22,14 @@ class FakeSetupUI:
             return self._answers.pop(0)
         return default
 
+    def prompt_secret(self, message: str, *, has_existing: bool = False) -> str | None:
+        if self._answers:
+            val = self._answers.pop(0)
+            if not val and has_existing:
+                return None
+            return val
+        return "" if not has_existing else None
+
     def echo(self, message: str) -> None:
         self.echoed.append(message)
 
