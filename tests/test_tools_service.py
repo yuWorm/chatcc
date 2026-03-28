@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -193,3 +194,36 @@ async def test_service_logs_no_managers(dispatcher: Dispatcher) -> None:
     fn = dispatcher.agent._function_toolset.tools["service_logs"].function
     out = await fn(_ctx(AgentDeps()), "x", 5, "")
     assert "管理器未初始化" in out
+
+
+def test_inspect_project_success(tmp_path, dispatcher: Dispatcher) -> None:
+    pm = ProjectManager(data_dir=tmp_path)
+    pm.create_project("web", str(tmp_path / "web"))
+    (Path(pm.get_project("web").path) / "package.json").write_text(
+        '{"name":"web","scripts":{"dev":"vite","build":"tsc"}}'
+    )
+    sm = MagicMock()
+    from chatcc.service.detector import CommandEntry, ProjectProfile
+
+    sm.detect_project = MagicMock(
+        return_value=ProjectProfile(
+            path=pm.get_project("web").path,
+            project_type="node",
+            readme_summary="A web app",
+            available_commands=[
+                CommandEntry(name="dev", command="npm run dev", source="package.json"),
+                CommandEntry(name="build", command="npm run build", source="package.json"),
+            ],
+        )
+    )
+    deps = AgentDeps(project_manager=pm, service_manager=sm)
+    fn = dispatcher.agent._function_toolset.tools["inspect_project"].function
+    out = fn(_ctx(deps), "")
+    assert "node" in out.lower() or "Node" in out
+    assert "npm run dev" in out
+
+
+def test_inspect_project_no_manager(dispatcher: Dispatcher) -> None:
+    fn = dispatcher.agent._function_toolset.tools["inspect_project"].function
+    out = fn(_ctx(AgentDeps()))
+    assert "未初始化" in out

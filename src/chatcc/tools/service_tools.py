@@ -84,6 +84,35 @@ def register_service_tools(agent: Agent) -> None:
 
         return await sm.logs(proj_name, name, lines=lines)
 
+    @agent.tool
+    def inspect_project(ctx: RunContext[Any], project: str = "") -> str:
+        """检测项目类型和可用启动命令"""
+        sm = ctx.deps.service_manager
+        pm = ctx.deps.project_manager
+        if not sm or not pm:
+            return "错误: 管理器未初始化"
+
+        if project:
+            proj = pm.get_project(project)
+        else:
+            proj = pm.default_project
+        if not proj:
+            return "错误: 未找到目标项目" if project else "错误: 未设置默认项目"
+
+        profile = sm.detect_project(proj.path)
+
+        lines = [f"项目: {proj.name} ({profile.project_type})"]
+        if profile.readme_summary:
+            lines.append(f"简介: {profile.readme_summary}")
+        if profile.available_commands:
+            lines.append("")
+            lines.append("可用命令:")
+            for cmd in profile.available_commands:
+                lines.append(f"  [{cmd.source}] {cmd.name}: {cmd.command}")
+        else:
+            lines.append("未检测到可用命令")
+        return "\n".join(lines)
+
 
 def _resolve_project_name(pm: Any, project: str) -> str | None:
     if project:
